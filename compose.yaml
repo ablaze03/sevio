@@ -1,0 +1,19 @@
+services:
+  sevio-api:
+    build: .
+    container_name: sevio-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      SEVIO_DB_PATH: /data/rosreestr.sqlite
+    volumes:
+      - /srv/sevio/data/rosreestr.sqlite:/data/rosreestr.sqlite:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

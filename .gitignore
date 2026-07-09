@@ -1,0 +1,29 @@
+.DS_Store
+__pycache__/
+*.pyc
+.env
+.venv/
+node_modules/
+**/node_modules/
+
+# Large/private Rosreestr data. Keep these on the server, not in GitHub.
+Сделки Росреестр/output/*.sqlite
+Сделки Росреестр/output/*.sqlite.tmp
+Сделки Росреестр/**/*.csv
+Сделки Росреестр/**/*.xlsx
+Сделки Росреестр/**/*.zip
+dataset_*.csv
+Сделки Росреестр/output/
+
+# Local generated media/assets.
+tmp/
+outputs/
+deploy/local/
+Сделки Росреестр/.codex-video-export/
+Сделки Росреестр/output/
+Сделки Росреестр/Исходники роликов/
+Сделки Росреестр/**/*.mp4
+Сделки Росреестр/**/*.wav
+Сделки Росреестр/**/*.jpg
+Сделки Росреестр/**/*.png
+Сделки Росреестр/**/*.svg

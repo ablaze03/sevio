@@ -1,0 +1,694 @@
+from __future__ import annotations
+
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import sqlite3
+import statistics
+import time
+from collections import defaultdict, deque
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, Optional
+
+from fastapi import FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DB = ROOT / "Сделки Росреестр" / "output" / "rosreestr_deals_unified_2025q3_2026q1.sqlite"
+DB_PATH = Path(os.getenv("SEVIO_DB_PATH", str(DEFAULT_DB))).expanduser()
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+PROTOTYPE_DATA_PATH = STATIC_DIR / "prototype-data.json"
+
+API_SECRET = os.getenv("SEVIO_API_SECRET", "dev-change-me")
+REQUIRE_SESSION = os.getenv("SEVIO_REQUIRE_SESSION", "1") != "0"
+RATE_LIMIT_PER_MINUTE = int(os.getenv("SEVIO_RATE_LIMIT_PER_MINUTE", "90"))
+MIN_PUBLIC_DEALS = int(os.getenv("SEVIO_MIN_PUBLIC_DEALS", "3"))
+MAX_LIMIT = int(os.getenv("SEVIO_MAX_LIMIT", "20"))
+
+TYPE_CODES = {
+    "1": "002001001000",  # земельный участок
+    "2": "002001002000",  # здание
+    "3": "002001003000",  # помещение / квартира
+    "4": "002001003000",  # коммерческие помещения ограничиваем purpose_code ниже
+    "5": "002001009000",  # машиноместо
+}
+
+TYPE_NAMES = {
+    "1": "Земельный участок",
+    "2": "Здание",
+    "3": "Квартира/помещение",
+    "4": "Коммерция",
+    "5": "Машиноместо",
+}
+
+REGION_NAMES = {
+    1: "Адыгея",
+    2: "Башкортостан",
+    3: "Бурятия",
+    4: "Алтай",
+    5: "Дагестан",
+    6: "Ингушетия",
+    7: "Кабардино-Балкария",
+    8: "Калмыкия",
+    9: "Карачаево-Черкесия",
+    10: "Карелия",
+    11: "Коми",
+    12: "Марий Эл",
+    13: "Мордовия",
+    14: "Саха (Якутия)",
+    15: "Северная Осетия",
+    16: "Татарстан",
+    17: "Тыва",
+    18: "Удмуртия",
+    19: "Хакасия",
+    20: "Чечня",
+    21: "Чувашия",
+    22: "Алтайский край",
+    23: "Краснодарский край",
+    24: "Красноярский край",
+    25: "Приморский край",
+    26: "Ставропольский край",
+    27: "Хабаровский край",
+    28: "Амурская обл.",
+    29: "Архангельская обл.",
+    30: "Астраханская обл.",
+    31: "Белгородская обл.",
+    32: "Брянская обл.",
+    33: "Владимирская обл.",
+    34: "Волгоградская обл.",
+    35: "Вологодская обл.",
+    36: "Воронежская обл.",
+    37: "Ивановская обл.",
+    38: "Иркутская обл.",
+    39: "Калининградская обл.",
+    40: "Калужская обл.",
+    41: "Камчатский край",
+    42: "Кемеровская обл.",
+    43: "Кировская обл.",
+    44: "Костромская обл.",
+    45: "Курганская обл.",
+    46: "Курская обл.",
+    47: "Ленинградская обл.",
+    48: "Липецкая обл.",
+    49: "Магаданская обл.",
+    50: "Московская обл.",
+    51: "Мурманская обл.",
+    52: "Нижегородская обл.",
+    53: "Новгородская обл.",
+    54: "Новосибирская обл.",
+    55: "Омская обл.",
+    56: "Оренбургская обл.",
+    57: "Орловская обл.",
+    58: "Пензенская обл.",
+    59: "Пермский край",
+    60: "Псковская обл.",
+    61: "Ростовская обл.",
+    62: "Рязанская обл.",
+    63: "Самарская обл.",
+    64: "Саратовская обл.",
+    65: "Сахалинская обл.",
+    66: "Свердловская обл.",
+    67: "Смоленская обл.",
+    68: "Тамбовская обл.",
+    69: "Тверская обл.",
+    70: "Томская обл.",
+    71: "Тульская обл.",
+    72: "Тюменская обл.",
+    73: "Ульяновская обл.",
+    74: "Челябинская обл.",
+    75: "Забайкальский край",
+    76: "Ярославская обл.",
+    77: "Москва",
+    78: "Санкт-Петербург",
+    79: "Еврейская АО",
+    83: "Ненецкий АО",
+    86: "Ханты-Мансийский АО",
+    87: "Чукотский АО",
+    89: "Ямало-Ненецкий АО",
+    91: "Крым",
+    92: "Севастополь",
+    93: "ДНР",
+    94: "ЛНР",
+    95: "Херсонская обл.",
+}
+
+app = FastAPI(title="Sevio API", version="0.1.0")
+app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
+rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+
+
+def now_i() -> int:
+    return int(time.time())
+
+
+def sign(payload: str) -> str:
+    return hmac.new(API_SECRET.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def make_token(request: Request) -> str:
+    payload = {
+        "iat": now_i(),
+        "nonce": secrets.token_hex(8),
+        "ua": hashlib.sha256((request.headers.get("user-agent") or "").encode()).hexdigest()[:16],
+    }
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+    body = base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+    return f"{body}.{sign(body)}"
+
+
+def verify_token(request: Request) -> None:
+    if not REQUIRE_SESSION:
+        return
+    token = request.headers.get("x-sevio-token") or request.query_params.get("token")
+    if not token or "." not in token:
+        raise HTTPException(status_code=403, detail="session token required")
+    body, got_sig = token.rsplit(".", 1)
+    if not hmac.compare_digest(sign(body), got_sig):
+        raise HTTPException(status_code=403, detail="bad session token")
+    try:
+        raw = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode()
+        payload = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(status_code=403, detail="bad session token") from exc
+    if now_i() - int(payload.get("iat", 0)) > 60 * 60 * 8:
+        raise HTTPException(status_code=403, detail="session expired")
+
+
+def client_key(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "local")
+    return ip
+
+
+@app.middleware("http")
+async def guard_middleware(request: Request, call_next):
+    path = request.url.path
+    key = client_key(request)
+    bucket = rate_buckets[key]
+    cutoff = time.time() - 60
+    while bucket and bucket[0] < cutoff:
+        bucket.popleft()
+    public_api_paths = {"/api/session", "/api/prototype-data"}
+    if path.startswith("/api/") and path not in public_api_paths:
+        if len(bucket) >= RATE_LIMIT_PER_MINUTE:
+            return JSONResponse({"detail": "too many requests"}, status_code=429)
+        bucket.append(time.time())
+        try:
+            verify_token(request)
+        except HTTPException as exc:
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status_code)
+
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    if path.startswith("/api/") and path != "/api/prototype-data":
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def db() -> sqlite3.Connection:
+    if not DB_PATH.exists():
+        raise HTTPException(status_code=503, detail=f"database not found: {DB_PATH}")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def normalize_query(value: Optional[str]) -> str:
+    return (value or "").strip()[:80]
+
+
+def search_key(value: str) -> str:
+    return " ".join(value.casefold().replace("ё", "е").split())
+
+
+def type_where(object_type: str) -> tuple[str, list[Any]]:
+    code = TYPE_CODES.get(object_type)
+    if not code:
+        raise HTTPException(status_code=400, detail="unknown object type")
+    where = "realestate_type_code = ?"
+    params: list[Any] = [code]
+    if object_type == "4":
+        where += " AND purpose_code IS NOT NULL AND purpose_code NOT IN ('206001000000', '204001000000')"
+    return where, params
+
+
+def weighted(values: list[tuple[float, int]]) -> list[float]:
+    out: list[float] = []
+    for value, count in values:
+        if value is None:
+            continue
+        out.extend([float(value)] * max(int(count or 1), 1))
+    return out
+
+
+def percentile(values: list[float], p: float) -> Optional[float]:
+    if not values:
+        return None
+    values = sorted(values)
+    if len(values) == 1:
+        return values[0]
+    k = (len(values) - 1) * p
+    lo = int(k)
+    hi = min(lo + 1, len(values) - 1)
+    frac = k - lo
+    return values[lo] * (1 - frac) + values[hi] * frac
+
+
+def round_money(value: Optional[float]) -> Optional[int]:
+    return None if value is None else int(round(value))
+
+
+def public_stats(rows: list[sqlite3.Row], object_type: str) -> dict[str, Any]:
+    price_values = weighted([(r["deal_price"], r["number"] or 1) for r in rows if r["deal_price"]])
+    if object_type == "1":
+        unit_pairs = [
+            (r["deal_price"] / r["area"] * 100, r["number"] or 1)
+            for r in rows
+            if r["deal_price"] and r["area"] and r["area"] > 0
+        ]
+        unit_name = "руб/сотка"
+    else:
+        unit_pairs = [
+            (r["deal_price"] / r["area"], r["number"] or 1)
+            for r in rows
+            if r["deal_price"] and r["area"] and r["area"] > 0
+        ]
+        unit_name = "руб/м2"
+    unit_values = weighted(unit_pairs)
+    deal_count = sum(int(r["number"] or 1) for r in rows)
+    if deal_count < MIN_PUBLIC_DEALS:
+        return {"n": deal_count, "suppressed": True, "min_public_deals": MIN_PUBLIC_DEALS}
+    return {
+        "n": deal_count,
+        "suppressed": False,
+        "price_median": round_money(statistics.median(price_values)) if price_values else None,
+        "price_p25": round_money(percentile(price_values, 0.25)),
+        "price_p75": round_money(percentile(price_values, 0.75)),
+        "unit_median": round_money(statistics.median(unit_values)) if unit_values else None,
+        "unit_p25": round_money(percentile(unit_values, 0.25)),
+        "unit_p75": round_money(percentile(unit_values, 0.75)),
+        "unit_name": unit_name,
+    }
+
+
+def rows_to_public_stats(rows: list[dict[str, Any]], object_type: str) -> dict[str, Any]:
+    price_values = weighted([(r["deal_price"], r["number"] or 1) for r in rows if r.get("deal_price")])
+    if object_type == "1":
+        unit_pairs = [
+            (r["deal_price"] / r["area"] * 100, r["number"] or 1)
+            for r in rows
+            if r.get("deal_price") and r.get("area") and r["area"] > 0
+        ]
+        unit_name = "руб/сотка"
+    else:
+        unit_pairs = [
+            (r["deal_price"] / r["area"], r["number"] or 1)
+            for r in rows
+            if r.get("deal_price") and r.get("area") and r["area"] > 0
+        ]
+        unit_name = "руб/м2"
+    unit_values = weighted(unit_pairs)
+    deal_count = sum(int(r.get("number") or 1) for r in rows)
+    if deal_count < MIN_PUBLIC_DEALS:
+        return {"n": deal_count, "suppressed": True, "min_public_deals": MIN_PUBLIC_DEALS}
+    return {
+        "n": deal_count,
+        "suppressed": False,
+        "price_median": round_money(statistics.median(price_values)) if price_values else None,
+        "price_p25": round_money(percentile(price_values, 0.25)),
+        "price_p75": round_money(percentile(price_values, 0.75)),
+        "unit_median": round_money(statistics.median(unit_values)) if unit_values else None,
+        "unit_p25": round_money(percentile(unit_values, 0.25)),
+        "unit_p75": round_money(percentile(unit_values, 0.75)),
+        "unit_name": unit_name,
+    }
+
+
+def latest_quarter(rows: list[dict[str, Any]], object_type: str) -> dict[str, Any]:
+    by_period: dict[tuple[int, int], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        if row.get("source_year") and row.get("source_quarter"):
+            by_period[(int(row["source_year"]), int(row["source_quarter"]))].append(row)
+    if not by_period:
+        return rows_to_public_stats(rows, object_type)
+    return rows_to_public_stats(by_period[max(by_period)], object_type)
+
+
+def group_rows(
+    object_type: str,
+    group_field: str,
+    where_sql: str = "",
+    params: Optional[list[Any]] = None,
+) -> list[dict[str, Any]]:
+    type_sql, type_params = type_where(object_type)
+    clauses = [type_sql, f"{group_field} IS NOT NULL", "deal_price IS NOT NULL", "area IS NOT NULL", "area > 0"]
+    if where_sql:
+        clauses.append(where_sql)
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {group_field} AS group_value, region_code, district_name, city_name,
+                   source_year, source_quarter, number, deal_price, area
+            FROM deals
+            WHERE {" AND ".join(clauses)}
+            """,
+            [*type_params, *(params or [])],
+        ).fetchall()
+
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    meta: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        key = row["group_value"]
+        grouped[key].append(
+            {
+                "source_year": row["source_year"],
+                "source_quarter": row["source_quarter"],
+                "number": row["number"],
+                "deal_price": row["deal_price"],
+                "area": row["area"],
+            }
+        )
+        meta.setdefault(
+            key,
+            {
+                "region_code": row["region_code"],
+                "region_name": REGION_NAMES.get(row["region_code"], f"Регион {row['region_code']}"),
+                "district": row["district_name"],
+                "city": row["city_name"],
+            },
+        )
+
+    items = []
+    for key, group in grouped.items():
+        total = rows_to_public_stats(group, object_type)
+        if total.get("suppressed"):
+            continue
+        latest = latest_quarter(group, object_type)
+        item = {**meta[key], "label": key, "total": total, "latest": latest}
+        items.append(item)
+    items.sort(key=lambda item: item["total"]["n"], reverse=True)
+    return items
+
+
+@lru_cache(maxsize=64)
+def cached_groups(
+    object_type: str,
+    level: str,
+    region_code: Optional[int] = None,
+    district: str = "",
+    city: str = "",
+) -> list[dict[str, Any]]:
+    if level == "regions":
+        return group_rows(object_type, "region_code")
+    if level == "districts":
+        if not region_code:
+            raise HTTPException(status_code=400, detail="region_code required")
+        return group_rows(object_type, "district_name", "region_code = ?", [region_code])
+    if level == "cities":
+        if not region_code or not district:
+            raise HTTPException(status_code=400, detail="region_code and district required")
+        return group_rows(
+            object_type,
+            "city_name",
+            "region_code = ? AND district_name = ?",
+            [region_code, normalize_query(district)],
+        )
+    if level == "streets":
+        if not region_code or not district:
+            raise HTTPException(status_code=400, detail="region_code and district required")
+        where = "region_code = ? AND district_name = ?"
+        params: list[Any] = [region_code, normalize_query(district)]
+        city = normalize_query(city)
+        if city:
+            where += " AND city_name = ?"
+            params.append(city)
+        return group_rows(object_type, "street_name", where, params)
+    raise HTTPException(status_code=400, detail="unknown level")
+
+
+def location_filters(
+    region_code: int,
+    district: Optional[str],
+    city: Optional[str],
+    street: Optional[str],
+) -> tuple[str, list[Any]]:
+    where = "region_code = ?"
+    params: list[Any] = [region_code]
+    if district:
+        where += " AND district_name = ?"
+        params.append(district)
+    if city:
+        if not district:
+            raise HTTPException(status_code=400, detail="district required for city filter")
+        where += " AND city_name = ?"
+        params.append(city)
+    if street:
+        if not district:
+            raise HTTPException(status_code=400, detail="district required for street filter")
+        where += " AND street_name = ?"
+        params.append(street)
+    return where, params
+
+
+@app.get("/", include_in_schema=False)
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.head("/", include_in_schema=False)
+def index_head():
+    return Response(status_code=200)
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots():
+    return PlainTextResponse("User-agent: *\nDisallow: /api/\nDisallow: /static/*.map\n")
+
+
+@app.get("/api/session")
+def api_session(request: Request):
+    return {"token": make_token(request), "ttl_seconds": 60 * 60 * 8}
+
+
+@app.get("/api/health")
+def api_health():
+    return {"ok": True, "db_exists": DB_PATH.exists(), "db_path": str(DB_PATH)}
+
+
+@app.get("/api/prototype-data", include_in_schema=False)
+def api_prototype_data():
+    return FileResponse(
+        PROTOTYPE_DATA_PATH,
+        media_type="application/json",
+        headers={"Cache-Control": "public, max-age=86400, stale-while-revalidate=604800"},
+    )
+
+
+@app.get("/api/search")
+def api_search(
+    q: str = Query(..., min_length=2, max_length=80),
+    object_type: str = Query("3", pattern="^[12345]$"),
+    limit: int = Query(8, ge=1, le=MAX_LIMIT),
+):
+    q = normalize_query(q)
+    norm_like = f"%{search_key(q)}%"
+    with db() as conn:
+        district_rows = conn.execute(
+            """
+            SELECT region_code, district_name, SUM(n) AS n
+            FROM location_public_summary
+            WHERE object_type = ?
+              AND city_name IS NULL
+              AND district_norm LIKE ?
+            GROUP BY region_code, district_name
+            HAVING n >= ?
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            [object_type, norm_like, MIN_PUBLIC_DEALS, limit],
+        ).fetchall()
+        city_rows = conn.execute(
+            """
+            SELECT region_code, district_name, city_name, SUM(n) AS n
+            FROM location_public_summary
+            WHERE object_type = ?
+              AND city_name IS NOT NULL
+              AND city_norm LIKE ?
+            GROUP BY region_code, district_name, city_name
+            HAVING n >= ?
+            ORDER BY n DESC
+            LIMIT ?
+            """,
+            [object_type, norm_like, MIN_PUBLIC_DEALS, limit],
+        ).fetchall()
+    items = []
+    for row in district_rows:
+        items.append(
+            {
+                "level": "district",
+                "region_code": row["region_code"],
+                "region_name": REGION_NAMES.get(row["region_code"], f"Регион {row['region_code']}"),
+                "district": row["district_name"],
+                "city": None,
+                "label": row["district_name"],
+                "n": int(row["n"] or 0),
+            }
+        )
+    for row in city_rows:
+        items.append(
+            {
+                "level": "city",
+                "region_code": row["region_code"],
+                "region_name": REGION_NAMES.get(row["region_code"], f"Регион {row['region_code']}"),
+                "district": row["district_name"],
+                "city": row["city_name"],
+                "label": row["city_name"],
+                "n": int(row["n"] or 0),
+            }
+        )
+    items.sort(key=lambda item: item["n"], reverse=True)
+    return {"items": items[:limit], "object_type": object_type}
+
+
+@app.get("/api/regions")
+def api_regions(
+    object_type: str = Query("3", pattern="^[12345]$"),
+    limit: int = Query(95, ge=1, le=120),
+):
+    items = cached_groups(object_type, "regions")[:limit]
+    for item in items:
+        item["level"] = "region"
+        item["label"] = item["region_name"]
+        item["district"] = None
+        item["city"] = None
+    return {"items": items, "object_type": object_type}
+
+
+@app.get("/api/locations")
+def api_locations(
+    region_code: int = Query(..., ge=1, le=99),
+    object_type: str = Query("3", pattern="^[12345]$"),
+    limit: int = Query(80, ge=1, le=200),
+):
+    items = cached_groups(object_type, "districts", region_code)[:limit]
+    for item in items:
+        item["level"] = "district"
+        item["city"] = None
+    return {"items": items, "object_type": object_type}
+
+
+@app.get("/api/cities")
+def api_cities(
+    region_code: int = Query(..., ge=1, le=99),
+    district: str = Query(..., min_length=1, max_length=120),
+    object_type: str = Query("3", pattern="^[12345]$"),
+    limit: int = Query(80, ge=1, le=200),
+):
+    items = cached_groups(object_type, "cities", region_code, normalize_query(district))[:limit]
+    for item in items:
+        item["level"] = "city"
+    return {"items": items, "object_type": object_type}
+
+
+@app.get("/api/location")
+def api_location(
+    region_code: int = Query(..., ge=1, le=99),
+    district: Optional[str] = Query(None, min_length=1, max_length=120),
+    city: Optional[str] = Query(None, max_length=120),
+    street: Optional[str] = Query(None, max_length=160),
+    object_type: str = Query("3", pattern="^[12345]$"),
+):
+    district = normalize_query(district) or None
+    city = normalize_query(city) or None
+    street = normalize_query(street) or None
+    type_sql, type_params = type_where(object_type)
+    loc_sql, loc_params = location_filters(region_code, district, city, street)
+    with db() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT source_year, source_quarter, number, deal_price, area
+            FROM deals
+            WHERE {type_sql} AND {loc_sql}
+            """,
+            [*type_params, *loc_params],
+        ).fetchall()
+    grouped: dict[str, list[sqlite3.Row]] = defaultdict(list)
+    for row in rows:
+        grouped[f"{row['source_year']}:{row['source_quarter']}"].append(row)
+    quarters = []
+    for key, group in sorted(grouped.items(), key=lambda item: tuple(map(int, item[0].split(":")))):
+        year, quarter = key.split(":")
+        quarters.append({"quarter": f"Q{quarter} {year}", **public_stats(group, object_type)})
+    return {
+        "location": {
+            "region_code": region_code,
+            "region_name": REGION_NAMES.get(region_code, f"Регион {region_code}"),
+            "district": district,
+            "city": city,
+            "street": street,
+        },
+        "object_type": object_type,
+        "object_type_name": TYPE_NAMES[object_type],
+        "total": public_stats(rows, object_type),
+        "quarters": quarters,
+    }
+
+
+@app.get("/api/calc")
+def api_calc(
+    region_code: int = Query(..., ge=1, le=99),
+    district: Optional[str] = Query(None, min_length=1, max_length=120),
+    area: float = Query(..., gt=0, le=100000),
+    city: Optional[str] = Query(None, max_length=120),
+    street: Optional[str] = Query(None, max_length=160),
+    object_type: str = Query("3", pattern="^[12345]$"),
+):
+    loc = api_location(region_code, district, city, street, object_type)
+    total = loc["total"]
+    if total.get("suppressed") or not total.get("unit_median"):
+        return {"location": loc["location"], "suppressed": True, "reason": "not enough public deals", "stats": total}
+    unit = total["unit_median"]
+    return {
+        "location": loc["location"],
+        "suppressed": False,
+        "area": area,
+        "unit_median": unit,
+        "unit_name": total["unit_name"],
+        "estimate": round_money(unit * area),
+        "low": round_money((total.get("unit_p25") or unit) * area),
+        "high": round_money((total.get("unit_p75") or unit) * area),
+        "stats": total,
+    }
+
+
+@app.get("/api/streets")
+def api_streets(
+    region_code: int = Query(..., ge=1, le=99),
+    district: str = Query(..., min_length=1, max_length=120),
+    city: Optional[str] = Query(None, max_length=120),
+    object_type: str = Query("3", pattern="^[12345]$"),
+    limit: int = Query(10, ge=1, le=MAX_LIMIT),
+):
+    items = cached_groups(
+        object_type,
+        "streets",
+        region_code,
+        normalize_query(district),
+        normalize_query(city) if city else "",
+    )[:limit]
+    for item in items:
+        item["level"] = "street"
+        item["street"] = item["label"]
+    return {"items": items, "object_type": object_type}
+
+
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

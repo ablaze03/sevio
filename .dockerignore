@@ -1,0 +1,13 @@
+.git
+.DS_Store
+.venv/
+tmp/
+outputs/
+**/__pycache__/
+**/*.pyc
+Сделки Росреестр/output/*.sqlite
+Сделки Росреестр/output/*.sqlite.tmp
+Сделки Росреестр/**/*.csv
+Сделки Росреестр/**/*.xlsx
+Сделки Росреестр/**/*.zip
+dataset_*.csv
