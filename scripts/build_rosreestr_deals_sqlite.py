@@ -200,36 +200,67 @@ def create_indexes_and_views(conn):
 
         CREATE TABLE location_public_summary AS
         WITH typed AS (
-            SELECT '1' AS object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT '1' AS object_type, region_code, district_name, district_norm, city_name, city_norm, street_name, street_norm, number
             FROM deals
             WHERE realestate_type_code = '002001001000'
             UNION ALL
-            SELECT '2' AS object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT '2' AS object_type, region_code, district_name, district_norm, city_name, city_norm, street_name, street_norm, number
             FROM deals
             WHERE realestate_type_code = '002001002000'
             UNION ALL
-            SELECT '3' AS object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT '3' AS object_type, region_code, district_name, district_norm, city_name, city_norm, street_name, street_norm, number
             FROM deals
             WHERE realestate_type_code = '002001003000'
             UNION ALL
-            SELECT '4' AS object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT '4' AS object_type, region_code, district_name, district_norm, city_name, city_norm, street_name, street_norm, number
             FROM deals
             WHERE realestate_type_code = '002001003000'
               AND purpose_code IS NOT NULL
               AND purpose_code NOT IN ('206001000000', '204001000000')
             UNION ALL
-            SELECT '5' AS object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT '5' AS object_type, region_code, district_name, district_norm, city_name, city_norm, street_name, street_norm, number
             FROM deals
             WHERE realestate_type_code = '002001009000'
         ),
         levels AS (
-            SELECT object_type, region_code, district_name, district_norm, NULL AS city_name, NULL AS city_norm, number
+            SELECT
+                object_type,
+                region_code,
+                district_name,
+                district_norm,
+                NULL AS city_name,
+                NULL AS city_norm,
+                NULL AS street_name,
+                NULL AS street_norm,
+                number
             FROM typed
             WHERE district_name IS NOT NULL
             UNION ALL
-            SELECT object_type, region_code, district_name, district_norm, city_name, city_norm, number
+            SELECT
+                object_type,
+                region_code,
+                district_name,
+                district_norm,
+                city_name,
+                city_norm,
+                NULL AS street_name,
+                NULL AS street_norm,
+                number
             FROM typed
-            WHERE district_name IS NOT NULL AND city_name IS NOT NULL
+            WHERE city_name IS NOT NULL
+            UNION ALL
+            SELECT
+                object_type,
+                region_code,
+                district_name,
+                district_norm,
+                city_name,
+                city_norm,
+                street_name,
+                street_norm,
+                number
+            FROM typed
+            WHERE street_name IS NOT NULL
         )
         SELECT
             object_type,
@@ -238,15 +269,28 @@ def create_indexes_and_views(conn):
             district_norm,
             city_name,
             city_norm,
+            street_name,
+            street_norm,
             SUM(COALESCE(number, 1)) AS n
         FROM levels
-        GROUP BY object_type, region_code, district_name, district_norm, city_name, city_norm;
+        GROUP BY
+            object_type,
+            region_code,
+            district_name,
+            district_norm,
+            city_name,
+            city_norm,
+            street_name,
+            street_norm;
 
         CREATE INDEX idx_location_public_summary_district
         ON location_public_summary(object_type, district_norm, n DESC);
 
         CREATE INDEX idx_location_public_summary_city
         ON location_public_summary(object_type, city_norm, n DESC);
+
+        CREATE INDEX idx_location_public_summary_street
+        ON location_public_summary(object_type, street_norm, n DESC);
         """
     )
 

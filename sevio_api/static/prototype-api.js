@@ -19,7 +19,10 @@ async function bootPrototype() {
   const UNIT = {1:"₽/сот.",2:"₽/м²",3:"₽/м²",4:"₽/м²",5:"₽/м²",6:"₽/м²"};
   const AREA_UNIT = {1:"сот.",2:"м²",3:"м²",4:"м²",5:"м²",6:"м²"};
   const DEFAULT_AREAS = {1:"10",2:"120",3:"54",4:"80",5:"14",6:"4"};
-  const fmt = n => n==null?"—":n.toLocaleString("ru-RU");
+  const fmt = n => {
+    const value = Number(n);
+    return Number.isFinite(value) ? Math.round(value).toLocaleString("ru-RU") : "—";
+  };
   const fmtMoney = n => {
     if(n==null) return "—";
     if(n>=1e6) return (n/1e6).toLocaleString("ru-RU",{maximumFractionDigits:1})+" млн ₽";
@@ -32,6 +35,167 @@ async function bootPrototype() {
     return fmt(Math.round(n));
   };
   const pct = x => (x>0?"+":"")+ (x*100).toLocaleString("ru-RU",{maximumFractionDigits:1})+"%";
+  const LOCATION_PHRASES = ["городской округ","муниципальный округ","муниципальный район","административный округ","городское поселение","сельское поселение","рабочий поселок","рабочий посёлок","пр т","б р","р н","г о","м о"];
+  const LOCATION_WORDS = ["район","округ","город","улица","ул","проспект","пр","переулок","пер","шоссе","бульвар","б-р","площадь","пл","проезд","набережная","наб","аллея","тупик","линия","микрорайон","мкр","территория","тер","поселок","посёлок","пос","деревня","д","село","с","рп","пгт","снт","днп","кп","г","го"];
+  const rxEsc = s => s.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
+  function rawKey(v){
+    return String(v||"").toLowerCase().replace(/ё/g,"е").replace(/["'`«»„“”]/g,"").replace(/[^0-9a-zа-я]+/g," ").replace(/\s+/g," ").trim();
+  }
+  function searchKey(v){
+    const raw=rawKey(v);
+    if(!raw) return "";
+    let key=raw;
+    for(const p of LOCATION_PHRASES){
+      const pk=rawKey(p);
+      while((" "+key+" ").includes(" "+pk+" ")) key=(" "+key+" ").replace(" "+pk+" "," ").trim();
+    }
+    const drop=new Set(LOCATION_WORDS.map(rawKey));
+    key=key.split(" ").filter(part=>!drop.has(part)).join(" ");
+    key=key.replace(/\s+/g," ").trim();
+    return key||raw;
+  }
+  function editDistanceWithinOne(a,b){
+    if(a===b) return true;
+    if(Math.abs(a.length-b.length)>1) return false;
+    let i=0,j=0,edits=0;
+    while(i<a.length&&j<b.length){
+      if(a[i]===b[j]){ i++; j++; continue; }
+      if(++edits>1) return false;
+      if(a.length>b.length) i++;
+      else if(b.length>a.length) j++;
+      else { i++; j++; }
+    }
+    return edits + (i<a.length||j<b.length ? 1 : 0) <= 1;
+  }
+  function searchMatch(key,q){
+    if(!q) return true;
+    if(key.includes(q)) return true;
+    if(q.length<5) return false;
+    const keyTokens=key.split(" ");
+    return q.split(" ").every(qt=>keyTokens.some(kt=>kt.includes(qt)||editDistanceWithinOne(qt,kt)));
+  }
+  function matchQuality(key,q){
+    if(!q) return 1;
+    if(key.includes(q)) return 100 + q.length;
+    if(q.length<5) return -1;
+    const keyTokens=key.split(" ");
+    let total=0;
+    for(const qt of q.split(" ")){
+      let best=-1;
+      for(const kt of keyTokens){
+        if(kt===qt) best=Math.max(best,40);
+        else if(kt.startsWith(qt)) best=Math.max(best,30);
+        else if(kt.includes(qt)) best=Math.max(best,20);
+        else if(editDistanceWithinOne(qt,kt)) best=Math.max(best,8);
+      }
+      if(best<0) return -1;
+      total+=best;
+    }
+    return total;
+  }
+  function tokenQuality(token,key){
+    if(!token || !key) return -1;
+    if(key===token) return 60;
+    if(key.split(" ").some(kt=>kt===token)) return 50;
+    if(key.split(" ").some(kt=>kt.startsWith(token))) return 35;
+    if(key.includes(token)) return 24;
+    if(token.length>=5 && key.split(" ").some(kt=>editDistanceWithinOne(token,kt))) return 10;
+    return -1;
+  }
+  function locationScore(item,q){
+    const tokens=q.split(" ").filter(Boolean);
+    if(!tokens.length) return 0;
+    const labelKey=item.labelKey||searchKey(item.label);
+    const contextKey=item.contextKey||"";
+    let labelHits=0, contextHits=0, quality=0;
+    for(const token of tokens){
+      const lq=tokenQuality(token,labelKey);
+      const cq=tokenQuality(token,contextKey);
+      if(lq<0 && cq<0) return -1;
+      if(lq>=cq){
+        labelHits++;
+        quality+=lq;
+      } else {
+        contextHits++;
+        quality+=cq;
+      }
+    }
+    if(!labelHits && item.kind!=="region") return -1;
+    const exactLabel = labelKey===q ? 500 : 0;
+    return exactLabel + labelHits*120 + contextHits*12 + quality;
+  }
+  const locationKey = (...parts) => searchKey(parts.filter(Boolean).join(" "));
+  const kindRank = {street:4, settlement:3, area:2, region:1};
+  const kindLabel = {street:"улица", settlement:"нас. пункт", area:"район/округ", region:"регион"};
+  const hasStreetIntent = raw => /\b(ул\.?|улица|проспект|пр-?т|переулок|пер\.?|шоссе|бульвар|проезд|набережная|наб\.?)\b/i.test(raw);
+  const STREET_DISPLAY_ALIASES = {
+    "москва|варшавское": "Варшавское шоссе",
+    "москва|дмитровское": "Дмитровское шоссе",
+    "москва|каширское": "Каширское шоссе",
+    "москва|ленинградское": "Ленинградское шоссе",
+    "москва|можайское": "Можайское шоссе",
+    "москва|рублевское": "Рублёвское шоссе",
+    "москва|щелковское": "Щёлковское шоссе",
+    "москва|энтузиастов": "шоссе Энтузиастов"
+  };
+  function streetTypeFromRaw(raw){
+    const key=rawKey(raw);
+    if(!key) return "";
+    if(key.split(" ").includes("шоссе")) return "шоссе";
+    if(key.split(" ").includes("проспект") || key.split(" ").includes("пр") || key.includes("пр т")) return "проспект";
+    if(key.split(" ").includes("переулок") || key.split(" ").includes("пер")) return "переулок";
+    if(key.split(" ").includes("бульвар") || key.includes("б р")) return "бульвар";
+    if(key.split(" ").includes("проезд")) return "проезд";
+    if(key.split(" ").includes("набережная") || key.split(" ").includes("наб")) return "набережная";
+    if(key.split(" ").includes("улица") || key.split(" ").includes("ул")) return "улица";
+    return "";
+  }
+  function displayStreetName(name, region, raw=""){
+    const key=searchKey(name);
+    const regionKey=searchKey(region);
+    const alias=STREET_DISPLAY_ALIASES[regionKey+"|"+key] || STREET_DISPLAY_ALIASES[key];
+    if(alias) return alias;
+    const type=streetTypeFromRaw(raw);
+    if(!type) return name;
+    if(type==="улица") return name;
+    return key.split(" ").includes(searchKey(type)) ? name : name+" "+type;
+  }
+  function mergeStreetSuggestions(items, ft){
+    const out=[], byKey=new Map();
+    for(const item of items){
+      if(item.kind!=="street"){
+        out.push(item);
+        continue;
+      }
+      const key=[item.rc,item.region,item.labelKey||searchKey(item.label)].join("|");
+      const n=scoreOf(item,ft);
+      let merged=byKey.get(key);
+      if(!merged){
+        merged={...item, nt:{...item.nt}, aliases:[item], mergedStreet:true, districts:[item.loc].filter(Boolean), best:item};
+        byKey.set(key,merged);
+        out.push(merged);
+      } else {
+        merged.aliases.push(item);
+        merged.nt[ft]=(merged.nt[ft]||0)+n;
+        if(item.loc && !merged.districts.includes(item.loc)) merged.districts.push(item.loc);
+        if(n>scoreOf(merged.best,ft)) {
+          merged.best=item;
+          merged.loc=item.loc;
+          merged.lcName=item.lcName;
+          merged.street=item.street;
+        }
+      }
+    }
+    for(const item of out){
+      if(item.mergedStreet && item.districts.length>1){
+        item.pathOverride = item.region + " · " + item.districts.slice(0,2).join(", ") + (item.districts.length>2 ? " +" + (item.districts.length-2) : "");
+      }
+    }
+    return out;
+  }
+  function scoreOf(i,ft){
+    return (i.nt&&i.nt[ft])||0;
+  }
 
   /* ---------- state ---------- */
   /* старт: Россия + 2-комн. — экран никогда не пустой, ответ виден сразу */
@@ -88,9 +252,9 @@ async function bootPrototype() {
     return o;
   }
   for(const [rc,reg] of Object.entries(DATA.regions)){
-    index.push({label:reg.name, rc, loc:null, nt:ntOf(reg.tot), key:reg.name.toLowerCase()});
+    index.push({label:reg.name, kind:"region", rc, loc:null, nt:ntOf(reg.tot), labelKey:searchKey(reg.name), contextKey:"", key:locationKey(reg.name)});
     for(const [loc,td] of Object.entries(reg.d)){
-      index.push({label:loc, rc, loc, region:reg.name, nt:ntOf(td), key:loc.toLowerCase()});
+      index.push({label:loc, kind:"area", rc, loc, region:reg.name, nt:ntOf(td), labelKey:searchKey(loc), contextKey:searchKey(reg.name), key:locationKey(loc, reg.name)});
     }
   }
   index.sort((a,b)=>b.nt.all-a.nt.all);
@@ -103,7 +267,7 @@ async function bootPrototype() {
       for(const [tt,lst] of Object.entries(d.st))
         for(const s of lst) (per[s[0]]=per[s[0]]||{})[tt]=s[1];
       for(const [name,nt] of Object.entries(per))
-        streetIndex.push({label:name, rc, loc, region:reg.name, street:name, nt, key:name.toLowerCase()});
+        streetIndex.push({label:name, kind:"street", rc, loc, region:reg.name, street:name, nt, labelKey:searchKey(name), contextKey:locationKey(loc, reg.name), key:locationKey(name, loc, reg.name)});
     }
   }
 
@@ -115,7 +279,7 @@ async function bootPrototype() {
       for(const [city,e] of Object.entries(d.lc)){
         const nt={all:e.n||0};
         for(const t of TKEYS){ if(e[t]) nt[t]=e[t].filter(Boolean).reduce((s,c)=>s+c[0],0); }
-        lcIndex.push({label:city, rc, loc, lcName:city, region:reg.name, nt, key:city.toLowerCase()});
+        lcIndex.push({label:city, kind:"settlement", rc, loc, lcName:city, region:reg.name, nt, labelKey:searchKey(city), contextKey:locationKey(loc, reg.name), key:locationKey(city, loc, reg.name)});
       }
     }
   }
@@ -123,6 +287,11 @@ async function bootPrototype() {
   function keyOf(t){ return t==="5" ? "4c6" : t==="6" ? "4c5" : t; }
   function lcEntry(){ if(!state.rc||!state.loc||!state.lc) return null; return (((DATA.regions[state.rc]||{}).d||{})[state.loc]||{}).lc ? ((DATA.regions[state.rc].d[state.loc].lc)||{})[state.lc]||null : null; }
   function lcPooled(e,t){ const arr=e&&e[t]; if(!arr) return null; let n=0,su=0,sp=0; for(const c of arr){ if(!c) continue; n+=c[0]; su+=c[2]*c[0]; sp+=c[1]*c[0]; } return n? {n, u:su/n, p:sp/n} : null; }
+  function currentStreetLabel(){
+    if(!state.street) return "";
+    const region=state.rc&&DATA.regions[state.rc] ? DATA.regions[state.rc].name : "";
+    return displayStreetName(state.street, region);
+  }
   /* полный ключ среза с учётом ВСЕХ фильтров сверху: тип + рынок + подтип */
   function fullKey(){
     if(state.t==="3" && state.market) return "3"+state.market;
@@ -210,6 +379,14 @@ async function bootPrototype() {
     if(!src) return null;
     return src[t===state.t ? fullKey() : keyOf(t)] || null; // [ [n,price,unit,S,K,P] | null x3 ]
   }
+  function kpiSeries(fallback){
+    if(state.lc && !state.street){
+      const e=lcEntry();
+      const raw=e && (e[fullKey()] || e[keyOf(state.t)]);
+      if(raw && raw.some(Boolean)) return raw;
+    }
+    return fallback;
+  }
   function lastCell(arr){ for(let i=2;i>=0;i--) if(arr&&arr[i]) return {c:arr[i],qi:i}; return null; }
   function firstCell(arr){ for(let i=0;i<3;i++) if(arr&&arr[i]) return {c:arr[i],qi:i}; return null; }
   function totalDeals(arr){ return (arr||[]).filter(Boolean).reduce((s,c)=>s+c[0],0); }
@@ -218,6 +395,7 @@ async function bootPrototype() {
   function forecast(arr){
     const f = firstCell(arr), l = lastCell(arr);
     if(!f||!l||l.qi===f.qi) return null;
+    if((f.c[0]||0)<10 || (l.c[0]||0)<10) return null;
     const span = l.qi - f.qi;
     let g = Math.pow(l.c[2]/f.c[2], 1/span) - 1;
     g = Math.max(-0.08, Math.min(0.08, g));
@@ -236,7 +414,8 @@ async function bootPrototype() {
 
   function render(){
     const reg = state.rc ? DATA.regions[state.rc] : null;
-    const arr = segArr(series(state.rc, state.loc, state.t));
+    const locLevelArr = segArr(series(state.rc, state.loc, state.t));
+    const arr = kpiSeries(locLevelArr);
     const locEl = document.getElementById("locname");
     const subEl = document.getElementById("locsub");
     const confEl = document.getElementById("conf");
@@ -252,7 +431,7 @@ async function bootPrototype() {
       else if(c.dataset.lv==="reg"){state.loc=null;}
       state.lc=null; state.street=null; render();
     });
-    subEl.textContent = state.lc ? "населённый пункт · расчёт в форме, аналитика ниже — по округу" : state.loc ? "город/район" : (state.rc ? "весь регион · кликните район на карте ниже" : "вся страна · кликните регион на карте ниже");
+    subEl.textContent = state.lc ? "населённый пункт · KPI и расчёт по нему, карта и таблица ниже — по округу" : state.loc ? "город/район" : (state.rc ? "весь регион · кликните район на карте ниже" : "вся страна · кликните регион на карте ниже");
 
     syncForm();
 
@@ -277,7 +456,7 @@ async function bootPrototype() {
       b.classList.toggle("dis", (!!state.market||!!state.ct||state.t==="5"||state.t==="6"||!state.rc) && +b.dataset.s>0);
     });
 
-    if(!arr || !arr.some(Boolean)){
+    if(!locLevelArr || !locLevelArr.some(Boolean)){
       confEl.style.display="none";
       kpis.innerHTML = "";
       chart.innerHTML = '<div class="nodata">'+(state.seg
@@ -290,26 +469,31 @@ async function bootPrototype() {
       return;
     }
 
-    const n = totalDeals(arr);
+    const l = lastCell(arr), f = firstCell(arr);
+    const locLevelLast = lastCell(locLevelArr);
+    const BU = locLevelLast ? baseUnit(locLevelLast) : {unit:l.c[2], n:l.c[0], src:"loc", lbl:"типичная цена в этой локации"};
+    const n = BU.n || totalDeals(arr);
     const cf = confidence(n);
     confEl.style.display="";
     confEl.className = "conf "+cf.cls;
     confEl.textContent = cf.lb;
 
-    const l = lastCell(arr), f = firstCell(arr);
-    const chg = (l&&f&&l.qi!==f.qi&&l.c[0]>=10&&f.c[0]>=10) ? l.c[2]/f.c[2]-1 : null;
+    const chg = (BU.src==="loc"&&state.metric==="med"&&l&&f&&l.qi!==f.qi&&l.c[0]>=10&&f.c[0]>=10) ? l.c[2]/f.c[2]-1 : null;
     const fc = forecast(arr);
 
     const segSuffix = (state.ct ? " · "+CT_NAMES[state.ct] : "") + (state.market ? " · "+MARKET_NAMES[state.market] : "") + (state.seg ? " · "+SEG_NAMES[state.seg] : "");
+    const area = parseFloat(state.inputs.area);
+    const areaEstimate = area>0 ? BU.unit * area * adjFactor().k : null;
+    const basisSuffix = BU.src==="lc" ? " · "+state.lc : BU.src==="street" ? " · "+currentStreetLabel() : segSuffix;
     const kpiData = [
-      {main:1, lb:"Сколько платят за "+(state.t==="1"?"сотку":"м²")+segSuffix,
-       v:fmt(l.c[2]), u:UNIT[state.t],
+      {main:1, lb:"Цена за "+(state.t==="1"?"сотку":"м²")+basisSuffix,
+       v:fmt(BU.unit), u:UNIT[state.t],
        d: chg==null?null:{x:chg, txt:pct(chg)+" за "+(l.qi-f.qi)+" кв."}},
-      {lb:"За сколько покупают целиком"+segSuffix,
-       v: l.c[1]>=1e6 ? (l.c[1]/1e6).toLocaleString("ru-RU",{maximumFractionDigits:2}) : fmt(l.c[1]),
-       u: l.c[1]>=1e6 ? "млн ₽" : "₽",
-       d:null},
-      {lb:"Как часто здесь покупают"+segSuffix, v:fmt(Math.round(n/9)), u:"сделок в месяц",
+      {lb:areaEstimate ? "Оценка "+fmt(area)+" "+AREA_UNIT[state.t] : "Медиана сделки целиком"+basisSuffix,
+       v: areaEstimate ? fmtMoney(areaEstimate).replace(" ₽","") : (l.c[1]>=1e6 ? (l.c[1]/1e6).toLocaleString("ru-RU",{maximumFractionDigits:2}) : fmt(l.c[1])),
+       u: areaEstimate ? "₽" : (l.c[1]>=1e6 ? "млн ₽" : "₽"),
+       d: areaEstimate ? {x:0, txt:fmt(BU.unit)+" "+UNIT[state.t]+" × "+fmt(area)+" "+AREA_UNIT[state.t]} : null},
+      {lb:"Как часто здесь покупают"+basisSuffix, v:fmt(Math.max(1,Math.round(n/9))), u:"сделок в месяц",
        d:{x:0, txt: liquidity(n).txt.split("·")[1].trim()+" · всего "+fmt(n)+" за 9 мес"}},
       {lb:"Что будет с ценой"+segSuffix+" · "+FQ[0], v: fc?fmtShort(fc.pts[0]):"—", u:fc?UNIT[state.t]:"",
        d: fc?{x:fc.g, txt:pct(fc.g)+" в квартал, если тренд сохранится"}:null},
@@ -322,8 +506,8 @@ async function bootPrototype() {
       </div>`).join("");
 
     renderChart(arr, fc);
-    renderSide(l);
-    renderStreets(l);
+    renderSide(locLevelLast);
+    renderStreets(locLevelLast);
     renderMap();
     renderTable();
     persistState();
@@ -477,7 +661,7 @@ async function bootPrototype() {
   /* ---------- сценарные панели (JTBD) ---------- */
   const MODE_TITLES = {buy:"Проверить цену объявления", sell:"Оценить мой объект", invest:"Где растёт и что ликвидно"};
 
-  function locLabel(){ return state.loc || (state.rc ? DATA.regions[state.rc].name : "Россия"); }
+  function locLabel(){ return currentStreetLabel() || state.lc || state.loc || (state.rc ? DATA.regions[state.rc].name : "Россия"); }
 
   function renderSide(l){
     const el = document.getElementById("ask-result");
@@ -525,7 +709,7 @@ async function bootPrototype() {
   }
   function streetNoteHTML(BU){
     if(BU.src!=="street"&&BU.src!=="lc") return "";
-    const what=BU.src==="street" ? "улице "+state.street : "населённому пункту «"+state.lc+"»";
+    const what=BU.src==="street" ? "улице "+currentStreetLabel() : "населённому пункту «"+state.lc+"»";
     const weak=BU.n<25;
     return `<div class="street-note ${weak?'weak':''}">Расчёт по ${what}: ${fmt(BU.n)} ${BU.n%10===1&&BU.n%100!==11?"сделка":BU.n%10>=2&&BU.n%10<=4&&(BU.n%100<10||BU.n%100>=20)?"сделки":"сделок"} за 9 месяцев.${weak?" Этого мало для надёжной оценки — считайте ориентиром.":""} Надёжнее по округу: <button type="button" id="to-loc">считать по ${state.loc}</button></div>`;
   }
@@ -596,19 +780,21 @@ async function bootPrototype() {
     }
     const BU=baseUnit(l);
     unit=BU.unit;
+    spread = BU.n>=300?0.12:BU.n>=50?0.18:0.25;
     const A = adjFactor();
     const market = unit*area*A.k;
     const lo=market*(1-spread), hi=market*(1+spread);
+    const loUnit=unit*(1-spread), hiUnit=unit*(1+spread);
     const adjNote = A.parts.length ? `<div class="adj-note">Учли особенности объекта (по реальным сделкам региона): ${A.parts.join(" · ")}</div>` : "";
     const pos=v=>Math.max(3,Math.min(97,(v-lo)/(hi-lo)*100));
     const yp = price?pos(price):0;
     const scale=(cls)=>`<div class="scale">
         ${price?`<div class="scale-you ${cls} ${yp<15?"edge-l":yp>85?"edge-r":""}" style="left:${yp}%"><span>ваша цена ${fmtMoney(price)}</span><i></i></div>`:""}
         <div class="scale-track"></div>
-        <div class="scale-med" style="left:${pos(market)}%"><i></i><span>чаще всего ≈ ${fmtMoney(market)}</span></div>
-        <div class="scale-min">дешёвые · ${fmtMoney(lo)}</div><div class="scale-max">${fmtMoney(hi)} · дорогие</div>
+        <div class="scale-med" style="left:${pos(market)}%"><i></i><span>чаще всего ≈ ${fmtMoney(market)}<small>${fmt(unit)} ${UNIT[state.t]}</small></span></div>
+        <div class="scale-min">дешёвые · ${fmtMoney(lo)}<small>${fmt(loUnit)} ${UNIT[state.t]}</small></div><div class="scale-max">${fmtMoney(hi)} · дорогие<small>${fmt(hiUnit)} ${UNIT[state.t]}</small></div>
       </div>`;
-    const head=`<span class="rp-lbl">За сколько ${BU.src==="street"?"на «"+state.street+"»":BU.src==="lc"?"в «"+state.lc+"»":"здесь"} покупают ${fmt(area)} ${AREA_UNIT[state.t]}</span>
+    const head=`<span class="rp-lbl">За сколько ${BU.src==="street"?"на «"+currentStreetLabel()+"»":BU.src==="lc"?"в «"+state.lc+"»":"здесь"} покупают ${fmt(area)} ${AREA_UNIT[state.t]}</span>
         <div class="big">≈ ${fmtMoney(market)}</div>
         <div class="rng">реальные сделки: от ${fmtMoney(lo)} до ${fmtMoney(hi)}</div>
         ${ndealsHTML(BU)}
@@ -668,6 +854,7 @@ async function bootPrototype() {
     }
     const BU=baseUnit(l);
     unit=BU.unit;
+    spread = BU.n>=300?0.12:BU.n>=50?0.18:0.25;
     const A = adjFactor();
     const v = unit*area*A.k;
     const lq = liquidity(n);
@@ -848,14 +1035,18 @@ async function bootPrototype() {
   /* ---------- search ---------- */
   const searchEl=document.getElementById("search"), suggEl=document.getElementById("sugg");
   let activeIdx=-1, suggItems=[];
+  function currentSearchValue(){
+    return state.street ? currentStreetLabel()+" ("+(state.lc||state.loc)+")" : state.lc ? state.lc+" ("+state.loc+")" : (state.loc || (state.rc&&DATA.regions[state.rc]?DATA.regions[state.rc].name:"Россия"));
+  }
   function openSugg(q){
-    q=q.trim().toLowerCase();
+    const rawQ=q.trim().toLowerCase();
+    q=searchKey(q);
     const ft=fTypeEl.value;
     const score=i=>i.nt[ft]||0;
-    const curLabel=(state.street ? state.street+" ("+(state.lc||state.loc)+")" : state.lc ? state.lc+" ("+state.loc+")" : (state.loc || (state.rc&&DATA.regions[state.rc]?DATA.regions[state.rc].name:"Россия"))).toLowerCase();
+    const curLabel=searchKey(currentSearchValue());
     const browse = !q || q===curLabel; // текст не меняли — показываем следующий уровень иерархии
     let html=""; suggItems=[];
-    const hl = (browse||!q) ? (s=>s) : (s=>s.replace(new RegExp("("+q.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")","i"),"<b>$1</b>"));
+    const hl = (browse||!rawQ) ? (s=>s) : (s=>s.replace(new RegExp("("+rxEsc(rawQ)+")","i"),"<b>$1</b>"));
     const push=(arr,title)=>{
       if(!arr.length) return;
       html+='<div class="grp">'+title+'</div>';
@@ -863,7 +1054,7 @@ async function bootPrototype() {
     };
     if(browse){
       if(!state.rc){
-        const regs=Object.entries(DATA.regions).map(([rc2,rg])=>({label:rg.name,rc:rc2,loc:null,nt:ntOf(rg.tot)}))
+        const regs=Object.entries(DATA.regions).map(([rc2,rg])=>({label:rg.name,kind:"region",rc:rc2,loc:null,nt:ntOf(rg.tot)}))
           .filter(i=>score(i)>0).sort((a,b)=>score(b)-score(a)).slice(0,15);
         push(regs,"Регионы · по числу сделок");
       } else if(!state.loc){
@@ -875,7 +1066,7 @@ async function bootPrototype() {
         push([{label:"← "+state.loc+" целиком",rc:state.rc,loc:state.loc,up:true,nt:{}}],"Уровень выше");
         const e=lcEntry();
         const lst=((e&&e.st)||{})[ft]||[];
-        const streets=lst.slice(0,20).map(x=>({label:x[0],rc:state.rc,loc:state.loc,lcName:state.lc,street:x[0],region:state.lc,nt:{[ft]:x[1]}}));
+        const streets=lst.slice(0,20).map(x=>({label:x[0],kind:"street",rc:state.rc,loc:state.loc,lcName:state.lc,street:x[0],region:state.lc,nt:{[ft]:x[1]}}));
         if(streets.length) push(streets,"Улицы · "+state.lc+" · по числу сделок");
         else html+='<div class="grp" style="padding-bottom:14px">Улиц с данными (от 3 сделок) в этом пункте нет</div>';
       } else {
@@ -884,47 +1075,54 @@ async function bootPrototype() {
         const d=DATA.regions[state.rc].d[state.loc]||{};
         const lcs=Object.entries(d.lc||{}).map(([city,e])=>{
           const nt={}; if(e[ft]) nt[ft]=e[ft].filter(Boolean).reduce((s2,c)=>s2+c[0],0);
-          return {label:city,rc:state.rc,loc:state.loc,lcName:city,region:DATA.regions[state.rc].name,nt,ntAll:e.n||0};
+          return {label:city,kind:"settlement",rc:state.rc,loc:state.loc,lcName:city,region:DATA.regions[state.rc].name,nt,ntAll:e.n||0};
         }).sort((a,b)=>(score(b)||0)-(score(a)||0) || (b.ntAll||0)-(a.ntAll||0)).slice(0,12);
         if(lcs.length) push(lcs,"Населённые пункты · "+state.loc);
         const st=(d.st||{})[ft]||[];
-        const streets=st.slice(0,15).map(x=>({label:x[0],rc:state.rc,loc:state.loc,street:x[0],region:DATA.regions[state.rc].name,nt:{[ft]:x[1]}}));
+        const streets=st.slice(0,15).map(x=>({label:x[0],kind:"street",rc:state.rc,loc:state.loc,street:x[0],region:DATA.regions[state.rc].name,nt:{[ft]:x[1]}}));
         if(streets.length) push(streets,"Улицы · "+state.loc+" · по числу сделок");
         else if(!lcs.length) html+='<div class="grp" style="padding-bottom:14px">Улиц с данными (от 3 сделок) здесь нет</div>';
       }
     } else {
-      const pool=index.filter(i=>score(i)>0).sort((a,b)=>score(b)-score(a));
-      const m=pool.filter(i=>i.key.includes(q));
-      push(m.filter(i=>!i.loc).slice(0,4),"Регионы");
-      push(m.filter(i=>i.loc).slice(0,8),"Районы и города");
-      const lcs=lcIndex.filter(i=>i.key.includes(q)).sort((a,b)=>(score(b)-score(a))||((b.nt.all||0)-(a.nt.all||0))).slice(0,6);
-      push(lcs,"Населённые пункты");
-      if(q.length>=3){
-        const streets=streetIndex.filter(i=>score(i)>0 && i.key.includes(q))
-          .sort((a,b)=>score(b)-score(a)).slice(0,6);
-        push(streets,"Улицы · точечные данные, надёжнее район");
-      }
+      const streetIntent=hasStreetIntent(rawQ);
+      const regions=index.filter(i=>!i.loc&&score(i)>0&&locationScore(i,q)>=0);
+      const areas=index.filter(i=>i.loc&&score(i)>0&&locationScore(i,q)>=0);
+      const lcs=lcIndex.filter(i=>locationScore(i,q)>=0);
+      const streets=q.length>=3 ? streetIndex.filter(i=>score(i)>0&&locationScore(i,q)>=0) : [];
+      const rank = i => locationScore(i,q)*10000000 + (streetIntent&&i.kind==="street"?1000000:0) + kindRank[i.kind]*100000 + (score(i)||i.nt.all||i.ntAll||0);
+      const best=mergeStreetSuggestions([...streets,...lcs,...areas,...regions], ft)
+        .sort((a,b)=>rank(b)-rank(a))
+        .slice(0,12);
+      push(best,"Подходящие локации");
     }
-    if(!suggItems.length){suggEl.innerHTML='<div class="grp" style="padding-bottom:14px">Ничего не найдено</div>';suggEl.classList.add("open");return;}
+    if(!suggItems.length){
+      suggEl.innerHTML='<div class="empty"><b>Локация не найдена</b><span>Попробуйте название без номера дома или выберите более крупный уровень: город, район или округ.</span></div>';
+      suggEl.classList.add("open");
+      return;
+    }
     suggEl.innerHTML=html; suggEl.classList.add("open"); activeIdx=-1;
     suggEl.querySelectorAll(".item").forEach(el=>el.onclick=()=>pick(+el.dataset.i));
   }
   function item(i,k,hl){
     const n=i.nt[fTypeEl.value]||0;
-    const where=i.street?`<span class="rg">· ${i.lcName||i.loc}, ${i.region}</span>`
-      : i.lcName?`<span class="rg">· ${i.loc}, ${i.region}</span>`
-      : (i.loc&&i.region?`<span class="rg">· ${i.region}</span>`:"");
+    const label=i.displayLabel || (i.street ? displayStreetName(i.label, i.region, searchEl.value) : i.label);
+    const path=i.pathOverride || (i.street?`${i.lcName||i.loc}, ${i.region}`
+      : i.lcName?`${i.loc}, ${i.region}`
+      : (i.loc&&i.region?i.region:""));
     const right=i.up?"":(n?`<span class="n">${fmt(n)} сд. · ${TYPE_NAMES[fTypeEl.value].toLowerCase()}</span>`
       : (i.nt.all||i.ntAll)?`<span class="n">${fmt(i.nt.all||i.ntAll)} сд. всего</span>`:"");
-    return `<div class="item" data-i="${k}"><span class="nm">${hl(i.label)} ${where}</span>${right}</div>`;
+    const tag=i.up?"":`<span class="tag">${kindLabel[i.kind]||"локация"}</span>`;
+    return `<div class="item" data-i="${k}"><span class="main"><span class="nm">${hl(label)} ${tag}</span>${path?`<span class="path">${path}</span>`:""}</span>${right}</div>`;
   }
   function pick(k){
     const it=suggItems[k]; if(!it) return;
-    if(it.rf){ state.rc=null; state.loc=null; state.lc=null; state.street=null; }
-    else if(it.upReg){ state.loc=null; state.lc=null; state.street=null; }
-    else { state.rc=it.rc; state.loc=it.loc||null; state.lc=it.lcName||null; state.street=it.street||null; }
+    const target=it.best||it;
+    if(target.rf){ state.rc=null; state.loc=null; state.lc=null; state.street=null; }
+    else if(target.upReg){ state.loc=null; state.lc=null; state.street=null; }
+    else { state.rc=target.rc; state.loc=target.loc||null; state.lc=target.lcName||null; state.street=target.street||null; }
     state.showAll=false;
-    searchEl.value = it.street ? it.street+" ("+(it.lcName||it.loc)+")" : it.lcName ? it.lcName+" ("+it.loc+")" : it.label.replace(/^← /,"");
+    const shownStreet = it.street ? (it.displayLabel || displayStreetName(it.street, it.region, searchEl.value)) : "";
+    searchEl.value = it.street ? shownStreet+" ("+(it.region||it.lcName||it.loc)+")" : it.lcName ? it.lcName+" ("+it.loc+")" : it.label.replace(/^← /,"");
     suggEl.classList.remove("open");
     // если у выбранной локации нет текущего типа — переключить на самый массовый доступный
     if(state.lc){
@@ -936,7 +1134,10 @@ async function bootPrototype() {
     render();
   }
   searchEl.addEventListener("input",e=>openSugg(e.target.value));
-  searchEl.addEventListener("focus",e=>openSugg(e.target.value));
+  searchEl.addEventListener("focus",e=>{
+    if(searchKey(e.target.value)===searchKey(currentSearchValue())) e.target.value="";
+    openSugg(e.target.value);
+  });
   searchEl.addEventListener("keydown",e=>{
     const items=suggEl.querySelectorAll(".item");
     if(e.key==="ArrowDown"){e.preventDefault();activeIdx=Math.min(activeIdx+1,items.length-1);}
@@ -1000,17 +1201,21 @@ async function bootPrototype() {
   }
 
   let syncing=false;
+  let clearSearchOnNextSync=false;
   function syncForm(){
     syncing=true;
     fModeEl.value=state.mode; fTypeEl.value=state.t;
     const reg=DATA.regions[state.rc];
-    if(document.activeElement!==searchEl) searchEl.value = state.street ? state.street+" ("+(state.lc||state.loc)+")" : state.lc ? state.lc+" ("+state.loc+")" : (state.loc || (state.rc&&DATA.regions[state.rc]?DATA.regions[state.rc].name:"Россия"));
+    if(document.activeElement!==searchEl) {
+      searchEl.value = clearSearchOnNextSync ? "" : currentSearchValue();
+      clearSearchOnNextSync=false;
+    }
     buildAskDetails();
     document.querySelectorAll("#mtbar .mt").forEach(b=>b.classList.toggle("on",b.dataset.mt===state.metric));
     buildExamples();
     const ctaEl=document.getElementById("cta");
     if(ctaEl){
-      const nm = state.street || state.lc || state.loc || (state.rc && DATA.regions[state.rc] ? DATA.regions[state.rc].name : null);
+      const nm = currentStreetLabel() || state.lc || state.loc || (state.rc && DATA.regions[state.rc] ? DATA.regions[state.rc].name : null);
       ctaEl.textContent = nm ? "Показать, за сколько покупают · "+nm : "Показать, за сколько здесь покупают";
     }
     syncing=false;
@@ -1021,7 +1226,14 @@ async function bootPrototype() {
     state.mode=fModeEl.value;
     if(state.t!==nextType){
       rememberTypeInputs(state.t);
-      state.street=null;
+      if(state.street){
+        state.loc=null;
+        state.lc=null;
+        state.street=null;
+        clearSearchOnNextSync=true;
+      } else {
+        state.street=null;
+      }
       useTypeInputs(nextType);
       state.seg=0; state.market=""; state.ct=0;
     }

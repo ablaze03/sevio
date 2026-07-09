@@ -19,6 +19,8 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 
+from sevio_api.location_text import location_query_key
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "Сделки Росреестр" / "output" / "rosreestr_deals_unified_2025q3_2026q1.sqlite"
@@ -251,7 +253,128 @@ def normalize_query(value: Optional[str]) -> str:
 
 
 def search_key(value: str) -> str:
-    return " ".join(value.casefold().replace("ё", "е").split())
+    return location_query_key(value)
+
+
+def edit_distance_within_one(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if abs(len(left) - len(right)) > 1:
+        return False
+    i = j = edits = 0
+    while i < len(left) and j < len(right):
+        if left[i] == right[j]:
+            i += 1
+            j += 1
+            continue
+        edits += 1
+        if edits > 1:
+            return False
+        if len(left) > len(right):
+            i += 1
+        elif len(right) > len(left):
+            j += 1
+        else:
+            i += 1
+            j += 1
+    return edits + (1 if i < len(left) or j < len(right) else 0) <= 1
+
+
+def location_key_matches(candidate_key: str, query_key: str) -> bool:
+    if not query_key:
+        return True
+    if query_key in candidate_key:
+        return True
+    if len(query_key) < 5:
+        return False
+    candidate_tokens = candidate_key.split()
+    return all(
+        any(query_token in candidate_token or edit_distance_within_one(query_token, candidate_token) for candidate_token in candidate_tokens)
+        for query_token in query_key.split()
+    )
+
+
+@lru_cache(maxsize=8)
+def summary_has_street_columns() -> bool:
+    if not DB_PATH.exists():
+        return False
+    with sqlite3.connect(DB_PATH) as conn:
+        rows = conn.execute("PRAGMA table_info(location_public_summary)").fetchall()
+    columns = {row[1] for row in rows}
+    return {"street_name", "street_norm"}.issubset(columns)
+
+
+def resolve_canonical_location_value(
+    conn: sqlite3.Connection,
+    field: str,
+    norm_field: str,
+    value: Optional[str],
+    where_sql: str = "",
+    params: Optional[list[Any]] = None,
+) -> Optional[str]:
+    value = normalize_query(value)
+    if not value:
+        return None
+    key = search_key(value)
+    clauses = [f"{field} IS NOT NULL"]
+    if where_sql:
+        clauses.append(where_sql)
+    row = conn.execute(
+        f"""
+        SELECT {field} AS value, {norm_field} AS norm, SUM(COALESCE(number, 1)) AS n
+        FROM deals
+        WHERE {" AND ".join(clauses)}
+          AND ({norm_field} = ? OR {norm_field} LIKE ?)
+        GROUP BY {field}, {norm_field}
+        ORDER BY CASE WHEN {norm_field} = ? THEN 0 ELSE 1 END, n DESC
+        LIMIT 1
+        """,
+        [*(params or []), key, f"%{key}%", key],
+    ).fetchone()
+    return row["value"] if row else value
+
+
+def resolve_location_inputs(
+    region_code: int,
+    district: Optional[str],
+    city: Optional[str],
+    street: Optional[str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    district = normalize_query(district) or None
+    city = normalize_query(city) or None
+    street = normalize_query(street) or None
+    with db() as conn:
+        district = resolve_canonical_location_value(
+            conn,
+            "district_name",
+            "district_norm",
+            district,
+            "region_code = ?",
+            [region_code],
+        )
+        city_where = "region_code = ?"
+        city_params: list[Any] = [region_code]
+        if district:
+            city_where += " AND district_name = ?"
+            city_params.append(district)
+        city = resolve_canonical_location_value(conn, "city_name", "city_norm", city, city_where, city_params)
+        street_where = "region_code = ?"
+        street_params: list[Any] = [region_code]
+        if district:
+            street_where += " AND district_name = ?"
+            street_params.append(district)
+        if city:
+            street_where += " AND city_name = ?"
+            street_params.append(city)
+        street = resolve_canonical_location_value(
+            conn,
+            "street_name",
+            "street_norm",
+            street,
+            street_where,
+            street_params,
+        )
+    return district, city, street
 
 
 def type_where(object_type: str) -> tuple[str, list[Any]]:
@@ -447,10 +570,14 @@ def cached_groups(
             [region_code, normalize_query(district)],
         )
     if level == "streets":
-        if not region_code or not district:
-            raise HTTPException(status_code=400, detail="region_code and district required")
-        where = "region_code = ? AND district_name = ?"
-        params: list[Any] = [region_code, normalize_query(district)]
+        if not region_code or (not district and not city):
+            raise HTTPException(status_code=400, detail="region_code and district or city required")
+        where = "region_code = ?"
+        params: list[Any] = [region_code]
+        district = normalize_query(district)
+        if district:
+            where += " AND district_name = ?"
+            params.append(district)
         city = normalize_query(city)
         if city:
             where += " AND city_name = ?"
@@ -471,13 +598,9 @@ def location_filters(
         where += " AND district_name = ?"
         params.append(district)
     if city:
-        if not district:
-            raise HTTPException(status_code=400, detail="district required for city filter")
         where += " AND city_name = ?"
         params.append(city)
     if street:
-        if not district:
-            raise HTTPException(status_code=400, detail="district required for street filter")
         where += " AND street_name = ?"
         params.append(street)
     return where, params
@@ -573,16 +696,21 @@ def api_prototype_data():
 def api_search(
     q: str = Query(..., min_length=2, max_length=80),
     object_type: str = Query("3", pattern="^[12345]$"),
+    region_code: Optional[int] = Query(None, ge=1, le=99),
     limit: int = Query(8, ge=1, le=MAX_LIMIT),
 ):
     q = normalize_query(q)
-    norm_like = f"%{search_key(q)}%"
+    query_key = search_key(q)
+    norm_like = f"%{query_key}%"
+    region_sql = "AND region_code = ?" if region_code is not None else ""
+    region_params: list[Any] = [region_code] if region_code is not None else []
     with db() as conn:
         district_rows = conn.execute(
-            """
+            f"""
             SELECT region_code, district_name, SUM(n) AS n
             FROM location_public_summary
             WHERE object_type = ?
+              {region_sql}
               AND city_name IS NULL
               AND district_norm LIKE ?
             GROUP BY region_code, district_name
@@ -590,13 +718,14 @@ def api_search(
             ORDER BY n DESC
             LIMIT ?
             """,
-            [object_type, norm_like, MIN_PUBLIC_DEALS, limit],
+            [object_type, *region_params, norm_like, MIN_PUBLIC_DEALS, limit],
         ).fetchall()
         city_rows = conn.execute(
-            """
+            f"""
             SELECT region_code, district_name, city_name, SUM(n) AS n
             FROM location_public_summary
             WHERE object_type = ?
+              {region_sql}
               AND city_name IS NOT NULL
               AND city_norm LIKE ?
             GROUP BY region_code, district_name, city_name
@@ -604,8 +733,99 @@ def api_search(
             ORDER BY n DESC
             LIMIT ?
             """,
-            [object_type, norm_like, MIN_PUBLIC_DEALS, limit],
+            [object_type, *region_params, norm_like, MIN_PUBLIC_DEALS, limit],
         ).fetchall()
+        if summary_has_street_columns():
+            street_rows = conn.execute(
+                f"""
+                SELECT
+                  region_code,
+                  CASE WHEN COUNT(DISTINCT COALESCE(district_name, '')) = 1 THEN MAX(district_name) ELSE NULL END AS district_name,
+                  CASE WHEN COUNT(DISTINCT COALESCE(city_name, '')) = 1 THEN MAX(city_name) ELSE NULL END AS city_name,
+                  street_name,
+                  SUM(n) AS n
+                FROM location_public_summary
+                WHERE object_type = ?
+                  {region_sql}
+                  AND street_name IS NOT NULL
+                  AND street_norm LIKE ?
+                GROUP BY region_code, street_norm, street_name
+                HAVING n >= ?
+                ORDER BY n DESC
+                LIMIT ?
+                """,
+                [object_type, *region_params, norm_like, MIN_PUBLIC_DEALS, limit],
+            ).fetchall()
+        else:
+            type_sql, type_params = type_where(object_type)
+            street_rows = conn.execute(
+                f"""
+                SELECT
+                  region_code,
+                  CASE WHEN COUNT(DISTINCT COALESCE(district_name, '')) = 1 THEN MAX(district_name) ELSE NULL END AS district_name,
+                  CASE WHEN COUNT(DISTINCT COALESCE(city_name, '')) = 1 THEN MAX(city_name) ELSE NULL END AS city_name,
+                  street_name,
+                  SUM(COALESCE(number, 1)) AS n
+                FROM deals
+                WHERE {type_sql}
+                  {region_sql}
+                  AND street_name IS NOT NULL
+                  AND street_norm LIKE ?
+                GROUP BY region_code, street_norm, street_name
+                HAVING n >= ?
+                ORDER BY n DESC
+                LIMIT ?
+                """,
+                [*type_params, *region_params, norm_like, MIN_PUBLIC_DEALS, limit],
+            ).fetchall()
+        if not street_rows and len(query_key) >= 5:
+            fuzzy_like = f"%{query_key.split()[0][:5]}%"
+            if summary_has_street_columns():
+                fuzzy_rows = conn.execute(
+                    f"""
+                    SELECT
+                      region_code,
+                      CASE WHEN COUNT(DISTINCT COALESCE(district_name, '')) = 1 THEN MAX(district_name) ELSE NULL END AS district_name,
+                      CASE WHEN COUNT(DISTINCT COALESCE(city_name, '')) = 1 THEN MAX(city_name) ELSE NULL END AS city_name,
+                      street_name,
+                      street_norm,
+                      SUM(n) AS n
+                    FROM location_public_summary
+                    WHERE object_type = ?
+                      {region_sql}
+                      AND street_name IS NOT NULL
+                      AND street_norm LIKE ?
+                    GROUP BY region_code, street_norm, street_name
+                    HAVING n >= ?
+                    ORDER BY n DESC
+                    LIMIT 100
+                    """,
+                    [object_type, *region_params, fuzzy_like, MIN_PUBLIC_DEALS],
+                ).fetchall()
+            else:
+                type_sql, type_params = type_where(object_type)
+                fuzzy_rows = conn.execute(
+                    f"""
+                    SELECT
+                      region_code,
+                      CASE WHEN COUNT(DISTINCT COALESCE(district_name, '')) = 1 THEN MAX(district_name) ELSE NULL END AS district_name,
+                      CASE WHEN COUNT(DISTINCT COALESCE(city_name, '')) = 1 THEN MAX(city_name) ELSE NULL END AS city_name,
+                      street_name,
+                      street_norm,
+                      SUM(COALESCE(number, 1)) AS n
+                    FROM deals
+                    WHERE {type_sql}
+                      {region_sql}
+                      AND street_name IS NOT NULL
+                      AND street_norm LIKE ?
+                    GROUP BY region_code, street_norm, street_name
+                    HAVING n >= ?
+                    ORDER BY n DESC
+                    LIMIT 100
+                    """,
+                    [*type_params, *region_params, fuzzy_like, MIN_PUBLIC_DEALS],
+                ).fetchall()
+            street_rows = [row for row in fuzzy_rows if location_key_matches(row["street_norm"], query_key)][:limit]
     items = []
     for row in district_rows:
         items.append(
@@ -628,6 +848,19 @@ def api_search(
                 "district": row["district_name"],
                 "city": row["city_name"],
                 "label": row["city_name"],
+                "n": int(row["n"] or 0),
+            }
+        )
+    for row in street_rows:
+        items.append(
+            {
+                "level": "street",
+                "region_code": row["region_code"],
+                "region_name": REGION_NAMES.get(row["region_code"], f"Регион {row['region_code']}"),
+                "district": row["district_name"],
+                "city": row["city_name"],
+                "street": row["street_name"],
+                "label": row["street_name"],
                 "n": int(row["n"] or 0),
             }
         )
@@ -669,7 +902,10 @@ def api_cities(
     object_type: str = Query("3", pattern="^[12345]$"),
     limit: int = Query(80, ge=1, le=200),
 ):
-    items = cached_groups(object_type, "cities", region_code, normalize_query(district))[:limit]
+    district, _city, _street = resolve_location_inputs(region_code, district, None, None)
+    if not district:
+        raise HTTPException(status_code=400, detail="district required")
+    items = cached_groups(object_type, "cities", region_code, district)[:limit]
     for item in items:
         item["level"] = "city"
     return {"items": items, "object_type": object_type}
@@ -683,9 +919,7 @@ def api_location(
     street: Optional[str] = Query(None, max_length=160),
     object_type: str = Query("3", pattern="^[12345]$"),
 ):
-    district = normalize_query(district) or None
-    city = normalize_query(city) or None
-    street = normalize_query(street) or None
+    district, city, street = resolve_location_inputs(region_code, district, city, street)
     type_sql, type_params = type_where(object_type)
     loc_sql, loc_params = location_filters(region_code, district, city, street)
     with db() as conn:
@@ -749,17 +983,20 @@ def api_calc(
 @app.get("/api/streets")
 def api_streets(
     region_code: int = Query(..., ge=1, le=99),
-    district: str = Query(..., min_length=1, max_length=120),
+    district: Optional[str] = Query(None, min_length=1, max_length=120),
     city: Optional[str] = Query(None, max_length=120),
     object_type: str = Query("3", pattern="^[12345]$"),
     limit: int = Query(10, ge=1, le=MAX_LIMIT),
 ):
+    district, city, _street = resolve_location_inputs(region_code, district, city, None)
+    if not district and not city:
+        raise HTTPException(status_code=400, detail="district or city required")
     items = cached_groups(
         object_type,
         "streets",
         region_code,
-        normalize_query(district),
-        normalize_query(city) if city else "",
+        district or "",
+        city or "",
     )[:limit]
     for item in items:
         item["level"] = "street"
