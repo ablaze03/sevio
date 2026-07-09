@@ -199,8 +199,11 @@ async function bootPrototype() {
 
   /* ---------- state ---------- */
   /* старт: Россия + 2-комн. — экран никогда не пустой, ответ виден сразу */
-  let state = { rc:null, loc:null, lc:null, t:"3", street:null, metric:"med", mode:"buy", seg:0, market:"", ct:0, horizon:5, sortBy:"u", sortDir:-1, showAll:false,
-    inputs:{area:DEFAULT_AREAS["3"], price:"", invest:"", ay:"0", af:"0", am:"0"} };
+  function makeDefaultState(){
+    return { rc:null, loc:null, lc:null, t:"3", street:null, metric:"med", mode:"buy", seg:0, market:"", ct:0, horizon:5, sortBy:"u", sortDir:-1, showAll:false,
+      inputs:{area:DEFAULT_AREAS["3"], price:"", invest:"", ay:"0", af:"0", am:"0"} };
+  }
+  let state = makeDefaultState();
   const STATE_STORAGE_KEY = "sevio:state:v1";
   const STATE_URL_KEYS = ["mode","t","rc","loc","lc","street","metric","seg","market","ct","area","price","invest","ay","af","am"];
   let inputsByType = {"3":{...state.inputs}};
@@ -326,12 +329,17 @@ async function bootPrototype() {
       for(const t of ["3","2","1","4","5","6"]) if(hasBase(state.rc,state.loc,t)){ state.t=t; useTypeInputs(t); break; }
     }
   }
-  function restoreState(){
+  function restoreState(opts={}){
+    const useStorage = opts.useStorage !== false;
+    state = makeDefaultState();
+    inputsByType = {"3":{...state.inputs}};
     let saved=null;
-    try { saved = JSON.parse(window.localStorage.getItem(STATE_STORAGE_KEY)||"null"); } catch(e) {}
-    if(saved && saved.inputsByType) inputsByType = saved.inputsByType;
-    if(saved && saved.state){
-      state = {...state, ...saved.state, inputs:{...state.inputs, ...(saved.state.inputs||{})}};
+    if(useStorage){
+      try { saved = JSON.parse(window.localStorage.getItem(STATE_STORAGE_KEY)||"null"); } catch(e) {}
+      if(saved && saved.inputsByType) inputsByType = saved.inputsByType;
+      if(saved && saved.state){
+        state = {...state, ...saved.state, inputs:{...state.inputs, ...(saved.state.inputs||{})}};
+      }
     }
     const params = new URLSearchParams(location.search);
     if(STATE_URL_KEYS.some(k=>params.has(k))){
@@ -344,6 +352,10 @@ async function bootPrototype() {
       rememberTypeInputs(state.t);
     }
     cleanState();
+  }
+  function restoreUrlState(){
+    restoreState({useStorage:false});
+    render();
   }
   function isDefaultState(){
     const d=defaultInputs("3");
@@ -1868,6 +1880,8 @@ async function bootPrototype() {
   document.getElementById("ava-anya").innerHTML=anyaSVG("show","88px");
   document.getElementById("ava-sergey").innerHTML=sergeySVG("happy","88px");
 
+  window.addEventListener("popstate", restoreUrlState);
+  window.addEventListener("pageshow", e=>{ if(e.persisted) restoreUrlState(); });
   restoreState();
   render();
 
