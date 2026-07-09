@@ -496,6 +496,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 .fld{display:flex;flex-direction:column;gap:4px;flex:1 1 150px;min-width:130px}
 .fld>span{font-size:11.5px;color:var(--muted);padding-left:4px}
 .fld .ainp{width:100%}
+.mob-lb{display:none}
 .adj-adv{margin-top:10px}
 .fitlist .fi .go{color:var(--accent2);font-weight:700;margin-left:8px}
 .fitlist .fi:hover b{text-decoration:underline}
@@ -634,6 +635,8 @@ tr.streets-sub .strow{font-size:13px;padding:7px 2px}
   .f-row .fld{flex:1 1 0;min-width:0}
   .fld{gap:6px}
   .fld>span{min-height:28px;line-height:1.25}
+  .price-lb .full-lb{display:none}
+  .price-lb .mob-lb{display:inline}
   .segbar{gap:6px}
   .segbar .sg-lb{width:100%;text-align:left}
   #mktbar .sg,#ctbar .sg,#segbar .sg,#mtbar .sg{flex:1 1 calc(50% - 6px);text-align:center}
@@ -849,7 +852,7 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
         </div>
         <div class="f-row">
           <label class="fld"><span>Площадь, м²</span><input class="ainp" id="fa" type="number" min="1" placeholder="например, 54" value="54"></label>
-          <label class="fld"><span>Цена в объявлении, ₽</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="12 500 000" value=""></label>
+          <label class="fld price-lb"><span><span class="full-lb">Цена из объявления, ₽ · не обязательно</span><span class="mob-lb">Цена, ₽ · необяз.</span></span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="например, 12 500 000" value=""></label>
         </div>
       </div>
       <details class="adv" id="adv-panel">
@@ -1013,6 +1016,6 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
   </footer>
 </div>
 
-<script src="/static/prototype-api.js?v=20260709-kpi3" defer></script>
+<script src="/static/prototype-api.js?v=20260709-kpi4" defer></script>
 </body>
 </html>

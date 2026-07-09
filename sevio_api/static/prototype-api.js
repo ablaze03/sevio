@@ -1172,7 +1172,7 @@ async function bootPrototype() {
         return `<button class="preset ${on?'on':''}" data-a="${p[1]}" ${p[2]!=null?`data-sg="${p[2]}"`:""} ${p[3]!=null?`data-ct="${p[3]}"`:""}>${p[0]}${t==="3"?" · "+p[1]+" м²":""}</button>`;
       }).join("")+`</div>`;
       html+=`<div class="f-row"><label class="fld"><span>Площадь, ${AREA_UNIT[t]}</span><input class="ainp" id="fa" type="number" min="1" placeholder="например, ${DEFAULT_AREAS[t]||54}" value="${state.inputs.area}"></label>`;
-      if(m==="buy") html+=`<label class="fld"><span>Цена в объявлении, ₽</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="12 500 000" value="${state.inputs.price?(+state.inputs.price).toLocaleString("ru-RU"):""}"></label>`;
+      if(m==="buy") html+=`<label class="fld price-lb"><span><span class="full-lb">Цена из объявления, ₽ · не обязательно</span><span class="mob-lb">Цена, ₽ · необяз.</span></span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="например, 12 500 000" value="${state.inputs.price?(+state.inputs.price).toLocaleString("ru-RU"):""}"></label>`;
       html+=`</div>`;
       if(t==="3" && m!=="invest"){
         const advRow=adjRowHTML();
