@@ -1592,7 +1592,7 @@ bootPrototype().catch((error) => {
     liked = !!data.liked;
     btn.classList.toggle("on", liked);
     btn.setAttribute("aria-pressed", liked ? "true" : "false");
-    countEl.textContent = data.count > 0 ? data.count.toLocaleString("ru-RU") : "";
+    countEl.textContent = (data.count || 0).toLocaleString("ru-RU");
   }
 
   async function prime() {

@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Sevio - реальные цены на недвижимость</title>
+  <desc id="desc">Карточка Sevio для социальных сетей</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0a0e1a"/>
+      <stop offset="0.58" stop-color="#10172a"/>
+      <stop offset="1" stop-color="#152036"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#7c5cff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="75%" cy="18%" r="70%">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity=".36"/>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <circle cx="1010" cy="92" r="220" fill="#22d3ee" opacity=".11"/>
+  <circle cx="132" cy="558" r="260" fill="#7c5cff" opacity=".12"/>
+  <g transform="translate(78 70)">
+    <rect width="86" height="86" rx="24" fill="url(#accent)"/>
+    <path d="M24 54c12 9 28 13 40 3 8-7 6-19-5-23l-18-6c-8-3-8-12-1-16 8-5 21-2 30 5" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round"/>
+    <text x="112" y="56" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="44" font-weight="800" fill="#e8ecf6">Sevio</text>
+    <text x="112" y="82" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="20" fill="#8b94ab">Знай реальную цену</text>
+  </g>
+  <g transform="translate(78 205)">
+    <text font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="68" font-weight="850" fill="#e8ecf6">
+      <tspan x="0" y="0">Реальные цены</tspan>
+      <tspan x="0" y="84">на недвижимость</tspan>
+    </text>
+    <text x="0" y="142" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="30" fill="#8b94ab">по зарегистрированным сделкам Росреестра</text>
+    <rect x="0" y="188" width="560" height="74" rx="20" fill="rgba(255,255,255,.07)" stroke="rgba(255,255,255,.16)"/>
+    <text x="32" y="236" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" font-weight="700" fill="#22d3ee">2 млн сделок</text>
+    <text x="242" y="236" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif" font-size="28" fill="#e8ecf6">не объявления</text>
+  </g>
+  <g transform="translate(760 210)" opacity=".92">
+    <rect x="0" y="0" width="310" height="260" rx="28" fill="rgba(255,255,255,.055)" stroke="rgba(255,255,255,.16)"/>
+    <path d="M58 190V92l97-68 97 68v98" fill="none" stroke="#22d3ee" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M112 190v-70h86v70" fill="none" stroke="#7c5cff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M80 220h150" stroke="#fbbf24" stroke-width="12" stroke-linecap="round"/>
+  </g>
+</svg>

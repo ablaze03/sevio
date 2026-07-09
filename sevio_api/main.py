@@ -30,6 +30,7 @@ SITE_URL = os.getenv("SEVIO_SITE_URL", "https://sevio.ru").rstrip("/")
 
 API_SECRET = os.getenv("SEVIO_API_SECRET", "dev-change-me")
 LIKES_SALT = os.getenv("SEVIO_LIKES_SALT", API_SECRET)
+LIKES_BASE = int(os.getenv("SEVIO_LIKES_BASE", "100"))
 REQUIRE_SESSION = os.getenv("SEVIO_REQUIRE_SESSION", "1") != "0"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("SEVIO_RATE_LIMIT_PER_MINUTE", "90"))
 MIN_PUBLIC_DEALS = int(os.getenv("SEVIO_MIN_PUBLIC_DEALS", "3"))
@@ -772,7 +773,7 @@ def api_likes(request: Request):
     with likes_db() as conn:
         total = conn.execute("SELECT COUNT(*) AS n FROM likes").fetchone()["n"]
         mine = conn.execute("SELECT 1 FROM likes WHERE visitor_hash = ?", [vh]).fetchone()
-    return {"count": int(total or 0), "liked": mine is not None}
+    return {"count": LIKES_BASE + int(total or 0), "liked": mine is not None}
 
 
 @app.post("/api/like")
@@ -791,7 +792,7 @@ def api_like(request: Request):
             liked = True
         conn.commit()
         total = conn.execute("SELECT COUNT(*) AS n FROM likes").fetchone()["n"]
-    return {"count": int(total or 0), "liked": liked}
+    return {"count": LIKES_BASE + int(total or 0), "liked": liked}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
