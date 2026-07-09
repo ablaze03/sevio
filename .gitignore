@@ -4,6 +4,10 @@ __pycache__/
 .env
 .venv/
 node_modules/
+
+# Локальная база лайков (собирается на сервере, не в Git).
+data/
+*.sqlite
 **/node_modules/
 
 # Large/private Rosreestr data. Keep these on the server, not in GitHub.

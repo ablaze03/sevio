@@ -422,6 +422,7 @@ async function bootPrototype() {
     } else {
       renderInvest(el);
     }
+    if (window.SevioLike && el.querySelector(".big")) window.SevioLike.reveal();
   }
 
   /* база расчёта: улица (если выбрана) или район; метрика: медиана / нижний / верхний квартиль */
@@ -1550,3 +1551,78 @@ bootPrototype().catch((error) => {
   const result = document.getElementById("ask-result");
   if (result) result.innerHTML = '<div class="res-hint">API временно недоступен.</div>';
 });
+
+/* ---------- лайки «👍 если было полезно» ---------- */
+(function initLike() {
+  const bar = document.getElementById("like-bar");
+  const btn = document.getElementById("like-btn");
+  const countEl = document.getElementById("like-count");
+  if (!bar || !btn || !countEl) return;
+
+  let tokenPromise = null;
+  let primed = false;
+  let busy = false;
+  let liked = false;
+
+  function getToken(force) {
+    if (force) tokenPromise = null;
+    if (!tokenPromise) {
+      tokenPromise = fetch("/api/session")
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("session " + r.status))))
+        .then((d) => d.token);
+    }
+    return tokenPromise;
+  }
+
+  async function apiLikes(method) {
+    const opts = { method, headers: {} };
+    let token = await getToken(false);
+    opts.headers["X-Sevio-Token"] = token;
+    let res = await fetch("/api/like" + (method === "GET" ? "s" : ""), opts);
+    if (res.status === 403) {
+      token = await getToken(true);
+      opts.headers["X-Sevio-Token"] = token;
+      res = await fetch("/api/like" + (method === "GET" ? "s" : ""), opts);
+    }
+    if (!res.ok) throw new Error("like " + res.status);
+    return res.json();
+  }
+
+  function paint(data) {
+    liked = !!data.liked;
+    btn.classList.toggle("on", liked);
+    btn.setAttribute("aria-pressed", liked ? "true" : "false");
+    countEl.textContent = data.count > 0 ? data.count.toLocaleString("ru-RU") : "";
+  }
+
+  async function prime() {
+    if (primed) return;
+    primed = true;
+    try {
+      paint(await apiLikes("GET"));
+    } catch (e) {
+      primed = false;
+    }
+  }
+
+  btn.addEventListener("click", async () => {
+    if (busy) return;
+    busy = true;
+    btn.disabled = true;
+    try {
+      paint(await apiLikes("POST"));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      busy = false;
+      btn.disabled = false;
+    }
+  });
+
+  window.SevioLike = {
+    reveal() {
+      bar.hidden = false;
+      prime();
+    },
+  };
+})();

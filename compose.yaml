@@ -7,8 +7,10 @@ services:
       - .env
     environment:
       SEVIO_DB_PATH: /data/rosreestr.sqlite
+      SEVIO_LIKES_DB_PATH: /data/likes/likes.sqlite
     volumes:
       - /srv/sevio/data/rosreestr.sqlite:/data/rosreestr.sqlite:ro
+      - /srv/sevio/data/likes:/data/likes
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

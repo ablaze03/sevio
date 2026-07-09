@@ -15,10 +15,100 @@
 </script>
 <noscript><div><img src="https://mc.yandex.ru/watch/110485119" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
 <!-- /Yandex.Metrika counter -->
-<title>Sevio — аналитика недвижимости по реальным данным Росреестра: за сколько на самом деле продают квартиры, дома и участки</title>
-<meta name="description" content="Sevio — аналитика недвижимости по реальным данным ЕГРН Росреестра: за сколько реально продали квартиры, дома, участки и коммерцию в вашем районе. Проверка цены объявления, оценка объекта, прогноз.">
+<title>Реальные цены на недвижимость по данным Росреестра — Sevio</title>
+<meta name="description" content="Sevio показывает реальные цены сделок с недвижимостью по данным ЕГРН Росреестра: квартиры, дома, участки и коммерция. Проверьте цену объявления и узнайте, за сколько покупают в вашем районе.">
 <meta name="keywords" content="за сколько продали квартиру, реальные цены сделок, цены росреестра, оценка недвижимости, цена за квадратный метр">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://sevio.ru/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Sevio">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:url" content="https://sevio.ru/">
+<meta property="og:title" content="Sevio — реальные цены на недвижимость по данным Росреестра">
+<meta property="og:description" content="Проверяйте цену квартиры, дома, участка или коммерции по реальным зарегистрированным сделкам, а не только по объявлениям.">
+<meta property="og:image" content="https://sevio.ru/static/og-sevio.svg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Sevio — реальные цены на недвижимость">
+<meta name="twitter:description" content="Узнайте, за сколько реально покупают недвижимость в вашем районе по данным Росреестра.">
+<meta name="twitter:image" content="https://sevio.ru/static/og-sevio.svg">
 <link rel="preload" href="/api/prototype-data?v=20260709-1355" as="fetch" type="application/json">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://sevio.ru/#organization",
+      "name": "Sevio",
+      "url": "https://sevio.ru/",
+      "description": "Информационно-аналитический сервис о реальных ценах сделок с недвижимостью по данным Росреестра."
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://sevio.ru/#website",
+      "url": "https://sevio.ru/",
+      "name": "Sevio",
+      "inLanguage": "ru-RU",
+      "publisher": {
+        "@id": "https://sevio.ru/#organization"
+      },
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://sevio.ru/?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    },
+    {
+      "@type": "WebApplication",
+      "@id": "https://sevio.ru/#app",
+      "name": "Sevio",
+      "url": "https://sevio.ru/",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "Any",
+      "inLanguage": "ru-RU",
+      "description": "Калькулятор и аналитика реальных цен сделок с квартирами, домами, участками и коммерческой недвижимостью."
+    },
+    {
+      "@type": "FAQPage",
+      "@id": "https://sevio.ru/#faq",
+      "mainEntity": [
+        {
+          "@type": "Question",
+          "name": "Как узнать, за сколько реально продали квартиру?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Выберите город, район или улицу в Sevio. Сервис покажет медианные цены реальных зарегистрированных сделок и цену за квадратный метр по данным Росреестра."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Чем реальные сделки отличаются от цен в объявлениях?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Объявления показывают ожидания продавцов, а сделки отражают цены, по которым недвижимость фактически перешла к покупателю после торга и регистрации."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Можно ли проверить цену квартиры с Циан или Авито?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Да. Введите локацию и площадь объекта, а цену из объявления укажите в калькуляторе. Sevio сравнит объявленную цену с диапазоном реальных сделок по похожей локации."
+          }
+        },
+        {
+          "@type": "Question",
+          "name": "Какие типы недвижимости анализирует Sevio?",
+          "acceptedAnswer": {
+            "@type": "Answer",
+            "text": "Сервис работает с квартирами и помещениями, домами, земельными участками, коммерческой недвижимостью и машино-местами, если по выбранной локации достаточно открытых данных."
+          }
+        }
+      ]
+    }
+  ]
+}
+</script>
 <style>
 :root{
   --bg:#0a0e1a; --bg2:#0e1424; --card:rgba(255,255,255,.045); --card2:rgba(255,255,255,.07);
@@ -411,6 +501,17 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 #ask-result .verdict .vt{font-size:22px}
 #ask-result .verdict .vd{font-size:14px}
 #ask-result .scale{margin:50px 8px 46px}
+/* like */
+.like-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)}
+.like-lb{font-size:13.5px;color:var(--muted)}
+.like-btn{display:inline-flex;align-items:center;gap:8px;cursor:pointer;background:transparent;border:1px solid rgba(124,92,255,.45);color:var(--text);padding:8px 15px;border-radius:99px;font-size:16px;font-weight:600;font-family:inherit;transition:.18s}
+.like-btn:hover{border-color:var(--accent);background:rgba(124,92,255,.1)}
+.like-btn:disabled{opacity:.55;cursor:default}
+.like-btn.on{background:rgba(124,92,255,.16);border-color:rgba(124,92,255,.7)}
+.like-btn.on .like-emoji{transform:scale(1.12)}
+.like-emoji{font-size:17px;transition:.18s}
+.like-count{font-size:14px;color:var(--accent2);font-variant-numeric:tabular-nums;min-width:14px;text-align:center}
+.like-count:empty{display:none}
 .scale-you.edge-l span{transform:translateX(38%)}
 .scale-you.edge-r span{transform:translateX(-38%)}
 tbody tr.sel td{background:rgba(124,92,255,.14)}
@@ -467,6 +568,20 @@ tr.streets-sub .strow{font-size:13px;padding:7px 2px}
 .meth b{color:var(--text)}
 .meth a.mlink{color:var(--accent2);font-weight:600;text-decoration:none;border-bottom:1px dashed rgba(34,211,238,.5)}
 .meth a.mlink:hover{border-bottom-style:solid}
+.seo-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+.seo-card{background:rgba(255,255,255,.035);border:1px solid var(--line);border-radius:16px;padding:18px}
+.seo-card h4{font-size:14px;margin-bottom:8px;color:var(--text)}
+.seo-card p{margin-top:0}
+.faq{margin-top:14px}
+.faq details{border-top:1px solid var(--line);padding:13px 0}
+.faq details:first-child{border-top:0}
+.faq summary{cursor:pointer;color:var(--text);font-weight:700;font-size:14px}
+.faq summary::-webkit-details-marker{display:none}
+.faq details p{margin-top:8px}
+.footer-links{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
+.footer-links a{color:var(--muted);text-decoration:none}
+.footer-links a:hover{color:var(--accent2)}
+@media(max-width:760px){.seo-grid{grid-template-columns:1fr}}
 footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34px}
 .nodata{color:var(--muted);padding:30px;text-align:center;font-size:14.5px}
 .ct{fill:#e8ecf6}.ctm{fill:#8b94ab}
@@ -627,6 +742,13 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
         <button class="cta" id="cta">Показать, за сколько здесь покупают</button>
       </div>
       <div id="ask-result" style="margin-top:16px"></div>
+      <div class="like-bar" id="like-bar" hidden>
+        <span class="like-lb">Поставьте 👍 если было полезно</span>
+        <button class="like-btn" id="like-btn" type="button" aria-pressed="false" aria-label="Поставить лайк">
+          <span class="like-emoji" id="like-emoji">👍</span>
+          <span class="like-count" id="like-count"></span>
+        </button>
+      </div>
       <div class="ask-extra">
         <div class="examples"><span class="ex-lb">Попробуйте:</span><span id="examples"></span></div>
         <button class="demo-btn" id="demo-btn"><svg class="ic"><use href="#i-play"/></svg>Жмите — покажу на живом примере · 35 сек</button>
@@ -702,13 +824,48 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
 
   <div class="meth">
     <h3>О сервисе</h3>
+    <p><b>Sevio помогает проверить реальную стоимость недвижимости.</b> В отличие от досок объявлений, где продавцы публикуют желаемую цену, сервис показывает ориентиры по зарегистрированным сделкам: за сколько фактически покупали квартиры, дома, участки, коммерческие помещения и машино-места в выбранной локации.</p>
+    <div class="seo-grid">
+      <div class="seo-card">
+        <h4>Проверка цены объявления</h4>
+        <p>Если вы нашли объект на Циан, Авито или другой площадке, укажите город, район, площадь и цену из объявления. Sevio сравнит её с диапазоном реальных сделок и покажет, насколько цена похожа на рынок.</p>
+      </div>
+      <div class="seo-card">
+        <h4>Аналитика по городам и районам</h4>
+        <p>Сервис рассчитывает медианную цену, цену за квадратный метр, динамику и распределение сделок по локациям. Эти показатели помогают оценить квартиру перед покупкой, продажей или переговорами.</p>
+      </div>
+    </div>
     <p><b>Данные.</b> Расчёты построены на официальных открытых данных Росреестра о зарегистрированных сделках с недвижимостью — более 2 миллионов записей. Массив проходит многоступенчатую автоматизированную обработку с применением алгоритмов машинного обучения и AI-моделей: очистку от аномальных и нерыночных записей, классификацию объектов и статистическое моделирование показателей. Итоговые цифры отражают картину рынка за период, указанный в шапке сайта.</p>
     <p><b>Правовой статус.</b> Sevio — информационно-аналитический ресурс. Все материалы носят исключительно справочный характер и не являются официальной оценкой недвижимости, индивидуальной инвестиционной рекомендацией, финансовой, юридической или иной профессиональной консультацией, рекламой или публичной офертой. Приведённые показатели могут не отражать стоимость конкретного объекта; решения, принятые на основе материалов сайта, пользователь принимает самостоятельно. Ресурс не осуществляет коммерческую деятельность.</p>
+    <p><b>Методология.</b> Подробно о расчётах, источниках данных, медианах, ограничениях и правовом статусе написано на отдельной странице: <a class="mlink" href="/methodology">методология Sevio</a>.</p>
     <p><b>Связь.</b> По вопросам сотрудничества и предложениям: <a class="mlink" href="https://t.me/kate_sp3" target="_blank" rel="noopener">написать в Telegram</a> · <a class="mlink" href="https://max.ru/u/f9LHodD0cOLzf7Dps-HBCcqYYpA5os36k3mZ55UFsAyFAWEra1V93wfN7kI" target="_blank" rel="noopener">написать в MAX</a>.</p>
   </div>
 
+  <div class="meth faq" id="faq">
+    <h3>Вопросы о реальных ценах недвижимости</h3>
+    <details open>
+      <summary>Как узнать, за сколько реально продали квартиру?</summary>
+      <p>Выберите город, район или улицу в Sevio. Сервис покажет медианные цены реальных зарегистрированных сделок и цену за квадратный метр по данным Росреестра.</p>
+    </details>
+    <details>
+      <summary>Чем реальные сделки отличаются от цен в объявлениях?</summary>
+      <p>Объявления показывают ожидания продавцов, а сделки отражают цены, по которым недвижимость фактически перешла к покупателю после торга и регистрации.</p>
+    </details>
+    <details>
+      <summary>Можно ли проверить цену квартиры с Циан или Авито?</summary>
+      <p>Да. Введите локацию и площадь объекта, а цену из объявления укажите в калькуляторе. Sevio сравнит объявленную цену с диапазоном реальных сделок по похожей локации.</p>
+    </details>
+    <details>
+      <summary>Какие типы недвижимости анализирует Sevio?</summary>
+      <p>Сервис работает с квартирами и помещениями, домами, земельными участками, коммерческой недвижимостью и машино-местами, если по выбранной локации достаточно открытых данных.</p>
+    </details>
+  </div>
+
   <div class="toast" id="toast"><span id="toast-msg"></span><button id="toast-go">Смотреть карточки ↑</button></div>
-  <footer>Sevio — аналитика недвижимости по реальным данным Росреестра · данные обновлены до марта 2026 · sevio.ru</footer>
+  <footer>
+    <div class="footer-links"><a href="/">Главная</a><a href="/methodology">Методология</a><a href="/sitemap.xml">Sitemap</a></div>
+    Sevio — аналитика недвижимости по реальным данным Росреестра · данные обновлены до марта 2026 · sevio.ru
+  </footer>
 </div>
 
 <script src="/static/prototype-api.js?v=20260709-1355" defer></script>

@@ -23,10 +23,13 @@ from starlette.middleware.gzip import GZipMiddleware
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DB = ROOT / "Сделки Росреестр" / "output" / "rosreestr_deals_unified_2025q3_2026q1.sqlite"
 DB_PATH = Path(os.getenv("SEVIO_DB_PATH", str(DEFAULT_DB))).expanduser()
+LIKES_DB_PATH = Path(os.getenv("SEVIO_LIKES_DB_PATH", str(ROOT / "data" / "likes.sqlite"))).expanduser()
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 PROTOTYPE_DATA_PATH = STATIC_DIR / "prototype-data.json"
+SITE_URL = os.getenv("SEVIO_SITE_URL", "https://sevio.ru").rstrip("/")
 
 API_SECRET = os.getenv("SEVIO_API_SECRET", "dev-change-me")
+LIKES_SALT = os.getenv("SEVIO_LIKES_SALT", API_SECRET)
 REQUIRE_SESSION = os.getenv("SEVIO_REQUIRE_SESSION", "1") != "0"
 RATE_LIMIT_PER_MINUTE = int(os.getenv("SEVIO_RATE_LIMIT_PER_MINUTE", "90"))
 MIN_PUBLIC_DEALS = int(os.getenv("SEVIO_MIN_PUBLIC_DEALS", "3"))
@@ -185,6 +188,26 @@ def client_key(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
     ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "local")
     return ip
+
+
+def likes_db() -> sqlite3.Connection:
+    LIKES_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(LIKES_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS likes ("
+        " visitor_hash TEXT PRIMARY KEY,"
+        " ts INTEGER NOT NULL"
+        ")"
+    )
+    return conn
+
+
+def visitor_hash(request: Request) -> str:
+    ip = client_key(request)
+    ua = request.headers.get("user-agent", "")
+    raw = f"{ip}|{ua}"
+    return hmac.new(LIKES_SALT.encode(), raw.encode(), hashlib.sha256).hexdigest()
 
 
 @app.middleware("http")
@@ -469,9 +492,61 @@ def index_head():
     return Response(status_code=200)
 
 
+@app.get("/methodology", include_in_schema=False)
+def methodology():
+    return FileResponse(STATIC_DIR / "methodology.html")
+
+
+@app.head("/methodology", include_in_schema=False)
+def methodology_head():
+    return Response(status_code=200)
+
+
+@app.get("/yandex_4c95cff7ab4af8b0.html", include_in_schema=False)
+def yandex_verification():
+    return FileResponse(STATIC_DIR / "yandex_4c95cff7ab4af8b0.html")
+
+
+@app.head("/yandex_4c95cff7ab4af8b0.html", include_in_schema=False)
+def yandex_verification_head():
+    return Response(status_code=200)
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap():
+    urls = [
+        {"loc": f"{SITE_URL}/", "lastmod": "2026-07-09", "priority": "1.0"},
+        {"loc": f"{SITE_URL}/methodology", "lastmod": "2026-07-09", "priority": "0.7"},
+    ]
+    body = "\n".join(
+        [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+            *[
+                (
+                    "  <url>"
+                    f"<loc>{item['loc']}</loc>"
+                    f"<lastmod>{item['lastmod']}</lastmod>"
+                    "<changefreq>weekly</changefreq>"
+                    f"<priority>{item['priority']}</priority>"
+                    "</url>"
+                )
+                for item in urls
+            ],
+            "</urlset>",
+        ]
+    )
+    return Response(content=body, media_type="application/xml")
+
+
 @app.get("/robots.txt", include_in_schema=False)
 def robots():
-    return PlainTextResponse("User-agent: *\nDisallow: /api/\nDisallow: /static/*.map\n")
+    return PlainTextResponse(
+        "User-agent: *\n"
+        "Disallow: /api/\n"
+        "Disallow: /static/*.map\n"
+        f"Sitemap: {SITE_URL}/sitemap.xml\n"
+    )
 
 
 @app.get("/api/session")
@@ -689,6 +764,34 @@ def api_streets(
         item["level"] = "street"
         item["street"] = item["label"]
     return {"items": items, "object_type": object_type}
+
+
+@app.get("/api/likes")
+def api_likes(request: Request):
+    vh = visitor_hash(request)
+    with likes_db() as conn:
+        total = conn.execute("SELECT COUNT(*) AS n FROM likes").fetchone()["n"]
+        mine = conn.execute("SELECT 1 FROM likes WHERE visitor_hash = ?", [vh]).fetchone()
+    return {"count": int(total or 0), "liked": mine is not None}
+
+
+@app.post("/api/like")
+def api_like(request: Request):
+    vh = visitor_hash(request)
+    with likes_db() as conn:
+        exists = conn.execute("SELECT 1 FROM likes WHERE visitor_hash = ?", [vh]).fetchone()
+        if exists:
+            conn.execute("DELETE FROM likes WHERE visitor_hash = ?", [vh])
+            liked = False
+        else:
+            conn.execute(
+                "INSERT INTO likes (visitor_hash, ts) VALUES (?, ?)",
+                [vh, now_i()],
+            )
+            liked = True
+        conn.commit()
+        total = conn.execute("SELECT COUNT(*) AS n FROM likes").fetchone()["n"]
+    return {"count": int(total or 0), "liked": liked}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
