@@ -37,6 +37,9 @@ async function bootPrototype() {
   /* старт: Россия + 2-комн. — экран никогда не пустой, ответ виден сразу */
   let state = { rc:null, loc:null, lc:null, t:"3", street:null, metric:"med", mode:"buy", seg:0, market:"", ct:0, horizon:5, sortBy:"u", sortDir:-1, showAll:false,
     inputs:{area:DEFAULT_AREAS["3"], price:"", invest:"", ay:"0", af:"0", am:"0"} };
+  const STATE_STORAGE_KEY = "sevio:state:v1";
+  const STATE_URL_KEYS = ["mode","t","rc","loc","lc","street","metric","seg","market","ct","area","price","invest","ay","af","am"];
+  let inputsByType = {"3":{...state.inputs}};
 
   const MARKET_NAMES={"":"", "n":"Новостройки (2020+)","v":"Вторичка (до 2020)"};
   const CT_NAMES={0:"",1:"Стрит-ритейл",2:"Офисы",3:"Подвал/цоколь",4:"Склады",5:"Кладовки",6:"Машино-места"};
@@ -131,6 +134,75 @@ async function bootPrototype() {
     const src = !rc ? DATA.rf : (DATA.regions[rc] ? (loc?(DATA.regions[rc].d[loc]||{}):DATA.regions[rc].tot) : null);
     return !!(src && src[keyOf(tt)]);
   }
+
+  function defaultInputs(t){
+    return {area:DEFAULT_AREAS[t]||"", price:"", invest:"", ay:"0", af:"0", am:"0"};
+  }
+  function rememberTypeInputs(t=state.t){
+    inputsByType[t] = {...defaultInputs(t), ...state.inputs};
+  }
+  function useTypeInputs(t){
+    state.inputs = {...defaultInputs(t), ...(inputsByType[t]||{})};
+    if(t!=="3"){ state.inputs.ay="0"; state.inputs.af="0"; state.inputs.am="0"; }
+  }
+  function cleanState(){
+    if(!TYPE_NAMES[state.t]) state.t="3";
+    if(state.rc && !DATA.regions[state.rc]){ state.rc=null; state.loc=null; state.lc=null; state.street=null; }
+    if(state.rc && state.loc && !DATA.regions[state.rc].d[state.loc]){ state.loc=null; state.lc=null; state.street=null; }
+    if(state.rc && state.loc && state.lc && !(((DATA.regions[state.rc].d[state.loc]||{}).lc||{})[state.lc])) state.lc=null;
+    if(state.t!=="4") state.ct=0;
+    if(state.t!=="3" && state.t!=="4") state.market="";
+    if((state.t==="5"||state.t==="6"||!state.rc) && state.seg) state.seg=0;
+    if(!hasBase(state.rc,state.loc,state.t)){
+      for(const t of ["3","2","1","4","5","6"]) if(hasBase(state.rc,state.loc,t)){ state.t=t; useTypeInputs(t); break; }
+    }
+  }
+  function restoreState(){
+    let saved=null;
+    try { saved = JSON.parse(window.localStorage.getItem(STATE_STORAGE_KEY)||"null"); } catch(e) {}
+    if(saved && saved.inputsByType) inputsByType = saved.inputsByType;
+    if(saved && saved.state){
+      state = {...state, ...saved.state, inputs:{...state.inputs, ...(saved.state.inputs||{})}};
+    }
+    const params = new URLSearchParams(location.search);
+    if(STATE_URL_KEYS.some(k=>params.has(k))){
+      const next = {};
+      for(const k of ["mode","t","rc","loc","lc","street","metric","market"]) if(params.has(k)) next[k]=params.get(k)||null;
+      for(const k of ["seg","ct"]) if(params.has(k)) next[k]=parseInt(params.get(k),10)||0;
+      const inputs = {};
+      for(const k of ["area","price","invest","ay","af","am"]) if(params.has(k)) inputs[k]=params.get(k)||"";
+      state = {...state, ...next, inputs:{...state.inputs, ...inputs}};
+      rememberTypeInputs(state.t);
+    }
+    cleanState();
+  }
+  function isDefaultState(){
+    const d=defaultInputs("3");
+    return !state.rc && !state.loc && !state.lc && !state.street && state.t==="3" && state.mode==="buy" &&
+      state.metric==="med" && !state.seg && !state.market && !state.ct &&
+      state.inputs.area===d.area && !state.inputs.price && !state.inputs.invest &&
+      state.inputs.ay==="0" && state.inputs.af==="0" && state.inputs.am==="0";
+  }
+  function persistState(){
+    rememberTypeInputs(state.t);
+    try {
+      window.localStorage.setItem(STATE_STORAGE_KEY, JSON.stringify({state:{...state, showAll:false}, inputsByType}));
+    } catch(e) {}
+    const params = new URLSearchParams(location.search);
+    for(const k of STATE_URL_KEYS) params.delete(k);
+    if(!isDefaultState()){
+      const put=(k,v)=>{ if(v!==null && v!==undefined && v!=="") params.set(k,String(v)); };
+      put("mode",state.mode); put("t",state.t); put("rc",state.rc); put("loc",state.loc); put("lc",state.lc); put("street",state.street);
+      put("metric",state.metric); put("seg",state.seg||""); put("market",state.market); put("ct",state.ct||"");
+      put("area",state.inputs.area); put("price",state.inputs.price); put("invest",state.inputs.invest);
+      put("ay",state.inputs.ay!=="0"?state.inputs.ay:""); put("af",state.inputs.af!=="0"?state.inputs.af:""); put("am",state.inputs.am!=="0"?state.inputs.am:"");
+    }
+    const qs = params.toString();
+    const nextUrl = location.pathname + (qs ? "?"+qs : "") + location.hash;
+    try {
+      if(nextUrl !== location.pathname + location.search + location.hash) window.history.replaceState(null, "", nextUrl);
+    } catch(e) {}
+  }
   /* срез локации со всеми фильтрами (включая сегмент) — для карты, таблицы, топов */
   function locArr(td){ return segArr((td||{})[fullKey()]||null); }
   function series(rc, loc, t){
@@ -214,6 +286,7 @@ async function bootPrototype() {
       document.getElementById("ask-result").innerHTML =
         '<div class="nodata" style="padding:16px">Недостаточно данных в этом срезе</div>';
       renderMap(); renderTable();
+      persistState();
       return;
     }
 
@@ -253,6 +326,7 @@ async function bootPrototype() {
     renderStreets(l);
     renderMap();
     renderTable();
+    persistState();
   }
 
   /* ---------- улицы ---------- */
@@ -897,7 +971,7 @@ async function bootPrototype() {
         return `<button class="preset ${on?'on':''}" data-a="${p[1]}" ${p[2]!=null?`data-sg="${p[2]}"`:""} ${p[3]!=null?`data-ct="${p[3]}"`:""}>${p[0]}${t==="3"?" · "+p[1]+" м²":""}</button>`;
       }).join("")+`</div>`;
       html+=`<div class="f-row"><label class="fld"><span>Площадь, ${AREA_UNIT[t]}</span><input class="ainp" id="fa" type="number" min="1" placeholder="например, ${DEFAULT_AREAS[t]||54}" value="${state.inputs.area}"></label>`;
-      if(m==="buy") html+=`<label class="fld"><span>Цена из объявления, ₽ · не обязательно</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="например, 12 500 000" value="${state.inputs.price?(+state.inputs.price).toLocaleString("ru-RU"):""}"></label>`;
+      if(m==="buy") html+=`<label class="fld"><span>Цена в объявлении, ₽</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="12 500 000" value="${state.inputs.price?(+state.inputs.price).toLocaleString("ru-RU"):""}"></label>`;
       html+=`</div>`;
       if(t==="3" && m!=="invest"){
         const advRow=adjRowHTML();
@@ -906,7 +980,7 @@ async function bootPrototype() {
 
       if(t==="4") html+=`<div class="ex-note">Подтип по данным ЕГРН: 1-й этаж — стрит-ритейл · 2+ — офисы · >100 м² — склад</div>`;
     } else {
-      html+=`<div class="f-row"><label class="fld"><span>Сумма вложения, ₽ · не обязательно</span><input class="ainp" id="fi" type="text" inputmode="numeric" placeholder="например, 8 000 000" value="${state.inputs.invest?(+state.inputs.invest).toLocaleString("ru-RU"):""}"></label></div>`;
+      html+=`<div class="f-row"><label class="fld"><span>Сумма вложения, ₽</span><input class="ainp" id="fi" type="text" inputmode="numeric" placeholder="8 000 000" value="${state.inputs.invest?(+state.inputs.invest).toLocaleString("ru-RU"):""}"></label></div>`;
     }
     d.innerHTML=html;
     d.querySelectorAll(".preset").forEach(b=>b.onclick=()=>{
@@ -915,12 +989,12 @@ async function bootPrototype() {
       if(b.dataset.ct!==undefined){ state.ct=+b.dataset.ct; state.seg=0; state.market=""; }
       buildAskDetails(); apply(false);
     });
-    const fa=d.querySelector("#fa"); if(fa) fa.addEventListener("input",()=>{state.inputs.area=fa.value; refreshSide();});
-    const fp=d.querySelector("#fp"); if(fp) fp.addEventListener("input",()=>{const raw=fp.value.replace(/[^\d]/g,""); state.inputs.price=raw; fp.value=raw?(+raw).toLocaleString("ru-RU"):""; refreshSide();});
-    const fi=d.querySelector("#fi"); if(fi) fi.addEventListener("input",()=>{const raw=fi.value.replace(/[^\d]/g,""); state.inputs.invest=raw; fi.value=raw?(+raw).toLocaleString("ru-RU"):""; refreshSide();});
+    const fa=d.querySelector("#fa"); if(fa) fa.addEventListener("input",()=>{state.inputs.area=fa.value; rememberTypeInputs(); refreshSide(); persistState();});
+    const fp=d.querySelector("#fp"); if(fp) fp.addEventListener("input",()=>{const raw=fp.value.replace(/[^\d]/g,""); state.inputs.price=raw; fp.value=raw?(+raw).toLocaleString("ru-RU"):""; rememberTypeInputs(); refreshSide(); persistState();});
+    const fi=d.querySelector("#fi"); if(fi) fi.addEventListener("input",()=>{const raw=fi.value.replace(/[^\d]/g,""); state.inputs.invest=raw; fi.value=raw?(+raw).toLocaleString("ru-RU"):""; rememberTypeInputs(); refreshSide(); persistState();});
     [["adj-y","ay"],["adj-f","af"],["adj-m","am"]].forEach(([id,key])=>{
       const s=d.querySelector("#"+id);
-      if(s) s.addEventListener("change",()=>{ state.inputs[key]=s.value; refreshSide(); });
+      if(s) s.addEventListener("change",()=>{ state.inputs[key]=s.value; rememberTypeInputs(); refreshSide(); persistState(); });
     });
 
   }
@@ -946,11 +1020,10 @@ async function bootPrototype() {
     const nextType=fTypeEl.value;
     state.mode=fModeEl.value;
     if(state.t!==nextType){
+      rememberTypeInputs(state.t);
       state.street=null;
-      state.inputs.area=DEFAULT_AREAS[nextType]||"";
-      state.inputs.price="";
+      useTypeInputs(nextType);
       state.seg=0; state.market=""; state.ct=0;
-      if(nextType!=="3"){ state.inputs.ay="0"; state.inputs.af="0"; state.inputs.am="0"; }
     }
     state.t=nextType; state.showAll=false;
     if(state.lc && !lcPooled(lcEntry(),state.t)) { state.lc=null; state.street=null; }
@@ -969,7 +1042,7 @@ async function bootPrototype() {
   fModeEl.addEventListener("change",()=>{ if(!syncing) apply(false); });
   fTypeEl.addEventListener("change",()=>{ if(!syncing) apply(false); });
   document.getElementById("cta").onclick=()=>{apply(false); const r=document.getElementById("ask-result"); if(r) r.scrollIntoView({behavior:"smooth",block:"center"});};
-  document.querySelectorAll("#mtbar .mt").forEach(b=>b.addEventListener("click",()=>{ state.metric=b.dataset.mt; document.querySelectorAll("#mtbar .mt").forEach(x=>x.classList.toggle("on",x.dataset.mt===state.metric)); refreshSide(); }));
+  document.querySelectorAll("#mtbar .mt").forEach(b=>b.addEventListener("click",()=>{ state.metric=b.dataset.mt; document.querySelectorAll("#mtbar .mt").forEach(x=>x.classList.toggle("on",x.dataset.mt===state.metric)); refreshSide(); persistState(); }));
 
   /* примеры-кейсы: короткие, подстраиваются под выбранные фильтры */
   function buildExamples(){
@@ -1494,12 +1567,51 @@ async function bootPrototype() {
     else { musicStop(); speakStop(); }
   };
 
+  const promoEl=document.getElementById("promo");
+  const pRotate=document.getElementById("promo-rotate");
+  async function requestPromoLandscape(){
+    let tried=false;
+    if(!window.matchMedia || !window.matchMedia("(max-width:900px)").matches) return;
+    try{
+      if(promoEl.requestFullscreen && document.fullscreenElement!==promoEl){
+        tried=true;
+        await promoEl.requestFullscreen({navigationUI:"hide"});
+      }
+    }catch(e){}
+    try{
+      if(screen.orientation && screen.orientation.lock){
+        tried=true;
+        await screen.orientation.lock("landscape");
+      }
+    }catch(e){}
+    return tried;
+  }
+  async function enterPromoViewport(){
+    await requestPromoLandscape();
+  }
+  async function exitPromoViewport(){
+    promoEl.classList.remove("visual-landscape");
+    try{ if(screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); }catch(e){}
+    try{
+      if(document.fullscreenElement===promoEl && document.exitFullscreen)
+        await document.exitFullscreen();
+    }catch(e){}
+  }
+  async function rotatePromoViewport(){
+    await requestPromoLandscape();
+    setTimeout(()=>{
+      if(window.matchMedia && window.matchMedia("(orientation:portrait)").matches)
+        promoEl.classList.toggle("visual-landscape");
+    },180);
+  }
+
   async function playPromo(scenes, ctaMode){
     if(promo.playing) return;
     promo.playing=true; promo.abort=false;
     pPoster.classList.add("hide"); pStop.classList.add("show");
-    document.getElementById("promo").classList.add("playing");
+    promoEl.classList.add("playing");
     document.getElementById("promo-backdrop").classList.add("show");
+    await enterPromoViewport();
     musicStart();
     const total=scenes.reduce((s,x)=>s+x.d,0);
     let done=0, finished=false;
@@ -1528,8 +1640,9 @@ async function bootPrototype() {
   }
   function stopPromo(){
     promo.abort=true; promo.playing=false;
-    document.getElementById("promo").classList.remove("playing");
+    promoEl.classList.remove("playing");
     document.getElementById("promo-backdrop").classList.remove("show");
+    exitPromoViewport();
     musicStop(); speakStop();
     pStage.innerHTML=""; pCap.textContent=""; pFill.style.width="0";
     pPoster.classList.remove("hide"); pStop.classList.remove("show");
@@ -1537,11 +1650,13 @@ async function bootPrototype() {
   document.getElementById("promo-play-anya").onclick=()=>playPromo(PROMO_SCENES,"buy");
   document.getElementById("promo-play-sergey").onclick=()=>playPromo(SERGEY_SCENES,"sell");
   pStop.onclick=()=>stopPromo();
+  if(pRotate) pRotate.onclick=(e)=>{ e.stopPropagation(); rotatePromoViewport(); };
   document.getElementById("promo-backdrop").onclick=()=>stopPromo();
   /* мини-аватары героев в кнопках */
   document.getElementById("ava-anya").innerHTML=anyaSVG("show","88px");
   document.getElementById("ava-sergey").innerHTML=sergeySVG("happy","88px");
 
+  restoreState();
   render();
 
 }
@@ -1625,4 +1740,6 @@ bootPrototype().catch((error) => {
       prime();
     },
   };
+
+  prime();
 })();

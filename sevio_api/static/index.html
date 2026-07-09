@@ -317,6 +317,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:22p
 .promo-close{position:absolute;top:14px;right:14px;z-index:11;display:none;background:rgba(10,14,26,.8);border:1px solid var(--line2);color:var(--muted);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:14px}
 .promo-close.show{display:block}
 .promo-close:hover{color:var(--text)}
+.promo-rotate{position:absolute;top:14px;left:14px;z-index:11;display:none;align-items:center;gap:7px;background:rgba(10,14,26,.86);border:1px solid var(--line2);color:var(--muted);border-radius:99px;padding:8px 13px;cursor:pointer;font-size:12.5px;font-weight:800;font-family:inherit;transition:.15s}
+.promo-rotate:hover{color:var(--text);border-color:var(--accent2)}
 .promo-mute{position:absolute;top:14px;left:14px;z-index:11;display:flex;align-items:center;gap:7px;background:rgba(10,14,26,.8);border:1px solid var(--line2);color:var(--muted);border-radius:99px;padding:8px 15px;cursor:pointer;font-size:12.5px;font-weight:700;font-family:inherit;transition:.15s}
 .promo-mute:hover{color:var(--text);border-color:var(--accent2)}
 .promo-mute.on{color:var(--accent2);border-color:rgba(34,211,238,.5);box-shadow:0 0 14px rgba(34,211,238,.25)}
@@ -582,6 +584,141 @@ tr.streets-sub .strow{font-size:13px;padding:7px 2px}
 .footer-links a{color:var(--muted);text-decoration:none}
 .footer-links a:hover{color:var(--accent2)}
 @media(max-width:760px){.seo-grid{grid-template-columns:1fr}}
+@media(max-width:760px){
+  .wrap{padding:0 16px}
+  header{align-items:flex-start;gap:12px;padding:16px 0}
+  .logo{font-size:18px}
+  .logo-mark{width:36px;height:36px;border-radius:11px}
+  .badge-src{max-width:180px;padding:6px 10px;font-size:11.5px;line-height:1.3}
+  .hero{padding:14px 0 4px}
+  .hero h1{font-size:clamp(26px,7vw,32px);line-height:1.16}
+  .hero p{font-size:14.5px;line-height:1.5;margin-top:10px}
+  .hero-grid{margin-top:18px;gap:12px}
+  .hero-right{order:1}
+  .hero-left{order:2;display:flex;flex-direction:column;gap:10px}
+  .watch-hook{font-size:13px;text-align:center;white-space:normal}
+  .watch-hook .hook-cta{justify-content:center}
+  .promo{border-radius:18px;box-shadow:0 16px 42px rgba(0,0,0,.38)}
+  .promo:not(.playing){height:132px;min-height:0}
+  .promo:not(.playing) .promo-poster{position:relative;min-height:132px}
+  .promo:not(.playing) .promo-stage,
+  .promo:not(.playing) .promo-cap,
+  .promo:not(.playing) .promo-bar{display:none}
+  .pp-inner{padding:12px}
+  .pp-choices{gap:8px}
+  .pp-choice{padding:8px 10px}
+  .pp-ava{width:38px;height:38px}
+  .hero-right .ask,.ask{padding:18px 16px;border-radius:18px}
+  .ask{margin-top:0}
+  .ask-row{align-items:stretch;gap:8px}
+  .ask>.ask-row:first-child{display:grid;grid-template-columns:28px minmax(0,1fr) 28px;gap:9px 10px;align-items:center}
+  .ask>.ask-row:first-child>.aw:first-child{grid-column:1;grid-row:1}
+  .ask>.ask-row:first-child>#f-mode{grid-column:2;grid-row:1;width:100%}
+  .ask>.ask-row:first-child>#f-type{grid-column:2;grid-row:2;width:100%}
+  .ask>.ask-row:first-child>.aw:nth-child(4){grid-column:3;grid-row:2}
+  .ask>.ask-row:first-child>.searchbox{grid-column:1 / -1;grid-row:3}
+  .ask-row .aw{align-self:center}
+  .asel{min-width:0;padding:12px 34px 12px 14px;font-size:15px}
+  .ask .searchbox{flex-basis:100%;min-width:0}
+  .ask .searchbox input{min-height:48px}
+  .p-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;overflow:visible;margin-top:16px}
+  .preset{white-space:normal;line-height:1.15;text-align:center;padding:9px 8px}
+  .f-row{flex-wrap:nowrap;margin-top:16px}
+  .f-row .fld{flex:1 1 0;min-width:0}
+  .fld{gap:6px}
+  .fld>span{min-height:28px;line-height:1.25}
+  .segbar{gap:6px}
+  .segbar .sg-lb{width:100%;text-align:left}
+  #mktbar .sg,#ctbar .sg,#segbar .sg,#mtbar .sg{flex:1 1 calc(50% - 6px);text-align:center}
+  .sg{font-size:12.5px;padding:7px 10px}
+  .cta{min-height:56px;padding:14px 12px;font-size:15.5px;line-height:1.25}
+  #ask-result .res{padding:16px}
+  #ask-result .res .big{font-size:28px}
+  #ask-result .scale{margin:72px 6px 82px}
+  #ask-result .scale-you{bottom:28px;width:112px}
+  #ask-result .scale-you.edge-l{transform:translateX(0)}
+  #ask-result .scale-you.edge-r{transform:translateX(-100%)}
+  #ask-result .scale-you span{font-size:11.5px;white-space:normal;line-height:1.15}
+  #ask-result .scale-you.edge-l span,#ask-result .scale-you.edge-r span{transform:none}
+  #ask-result .scale-min,#ask-result .scale-max{top:20px;font-size:10.5px;max-width:92px;line-height:1.15}
+  #ask-result .scale-med span{top:42px;font-size:10.5px;white-space:normal;line-height:1.15;min-width:110px}
+  .like-bar{gap:8px;justify-content:space-between}
+  .ask-extra{display:none}
+  .promo.playing{width:min(92vw,720px);max-height:calc(100dvh - 150px);aspect-ratio:16/9}
+  .promo.playing .promo-rotate{display:flex}
+  .promo.playing .scene{inset:36px 12px 72px;gap:14px;overflow:hidden}
+  .promo.playing .scene .hint{display:none}
+  .promo.playing .scene svg{max-height:52%;width:auto}
+  .promo.playing .listing{font-size:12.5px;line-height:1.25;padding:9px 11px;max-width:min(100%,360px)!important}
+  .promo.playing .listing small{font-size:11px;line-height:1.25}
+  .promo.playing .tagx{font-size:10.5px}
+  .promo.playing .bubble{font-size:13px;padding:10px 12px;max-width:220px}
+  .promo.playing .vcard{padding:12px 14px;border-radius:14px}
+  .promo.playing .vcard .v1{font-size:16px}
+  .promo.playing .vcard .crow{gap:8px;margin-top:6px;font-size:12px;line-height:1.2}
+  .promo.playing .vcard .crow b{font-size:14px;white-space:normal;text-align:right}
+  .promo.playing .endcard .e1{font-size:16px;line-height:1.18}
+  .promo.playing .endcard .e2{font-size:12px;line-height:1.25}
+  .promo.playing .endcard .ebtn{font-size:12px;padding:9px 14px;margin-top:10px}
+  .promo.playing .phone-ui{width:150px;padding:9px}
+  .promo.playing .phone-ui .pr{font-size:11px;padding:6px 8px}
+  .promo.playing .phone-ui .pb{font-size:11px;padding:7px}
+  .promo.playing .promo-cap{height:52px;font-size:13px;line-height:1.2;padding:4px 12px}
+}
+@media(max-width:420px){
+  header{gap:10px}
+  .badge-src{max-width:170px}
+  .hero p{display:none}
+  .hero-right .ask,.ask{padding:16px 14px}
+  .promo.playing{width:calc(100vw - 28px);max-height:calc(100dvh - 170px)}
+  .promo.playing .scene{inset:30px 10px 68px;gap:10px}
+  .promo.playing .scene svg{max-height:46%}
+  .promo.playing .vcard .crow{display:block;text-align:left}
+  .promo.playing .vcard .crow b{display:block;margin-top:3px;text-align:left}
+}
+@media(max-width:760px) and (orientation:portrait){
+  .promo.playing.visual-landscape{
+    width:min(calc(100dvh - 180px),calc((100vw - 24px) * 16 / 9));
+    max-height:none;
+    transform:translate(-50%,-50%) rotate(90deg);
+  }
+  .promo.playing.visual-landscape .promo-rotate{color:var(--accent2);border-color:rgba(34,211,238,.55)}
+}
+@media(max-width:900px) and (orientation:landscape){
+  .promo.playing{
+    width:min(96vw,calc((100dvh - 18px) * 16 / 9),940px);
+    max-height:calc(100dvh - 18px);
+    aspect-ratio:16/9;
+    border-radius:16px;
+  }
+  .promo.playing .scene{inset:44px 18px 58px;gap:4%;overflow:hidden}
+  .promo.playing .scene svg{max-height:96%;width:auto}
+  .promo.playing .scene .hint{display:block;font-size:12px;line-height:1.25}
+  .promo.playing .listing{font-size:13.5px;line-height:1.25;padding:10px 13px;max-width:min(100%,440px)!important}
+  .promo.playing .listing small{font-size:12px}
+  .promo.playing .bubble{font-size:14px;max-width:260px}
+  .promo.playing .vcard{max-width:92%;padding:14px 18px}
+  .promo.playing .vcard .v1{font-size:18px}
+  .promo.playing .vcard .crow{display:flex;gap:12px;font-size:13.5px}
+  .promo.playing .vcard .crow b{font-size:15px;text-align:right;white-space:normal}
+  .promo.playing .endcard .e1{font-size:18px}
+  .promo.playing .endcard .e2{font-size:13px}
+  .promo.playing .phone-ui{width:clamp(150px,22vw,205px)}
+  .promo.playing .phone-ui .pr{font-size:12px}
+  .promo.playing .promo-cap{height:50px;font-size:13.5px;line-height:1.2;padding:4px 44px}
+}
+.promo:fullscreen{
+  width:100vw;
+  height:100vh;
+  max-height:none;
+  border-radius:0;
+  aspect-ratio:auto;
+}
+.promo:fullscreen .promo-stage{inset:0}
+@media(orientation:landscape){
+  .promo:fullscreen .scene{inset:48px 24px 62px}
+  .promo:fullscreen .promo-cap{height:56px}
+}
 footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34px}
 .nodata{color:var(--muted);padding:30px;text-align:center;font-size:14.5px}
 .ct{fill:#e8ecf6}.ctm{fill:#8b94ab}
@@ -667,6 +804,7 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
             </div>
           </div>
         </div>
+        <button class="promo-rotate" id="promo-rotate" type="button" aria-label="Повернуть ролик">↻ Повернуть</button>
         <button class="promo-close" id="promo-stop">✕</button>
         <!-- звук временно отключён: кнопка убрана, snd.on=false -->
       </div>
@@ -704,7 +842,7 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
         </div>
         <div class="f-row">
           <label class="fld"><span>Площадь, м²</span><input class="ainp" id="fa" type="number" min="1" placeholder="например, 54" value="54"></label>
-          <label class="fld"><span>Цена из объявления, ₽ · не обязательно</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="например, 12 500 000" value=""></label>
+          <label class="fld"><span>Цена в объявлении, ₽</span><input class="ainp" id="fp" type="text" inputmode="numeric" placeholder="12 500 000" value=""></label>
         </div>
       </div>
       <details class="adv" id="adv-panel">
@@ -742,7 +880,7 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
         <button class="cta" id="cta">Показать, за сколько здесь покупают</button>
       </div>
       <div id="ask-result" style="margin-top:16px"></div>
-      <div class="like-bar" id="like-bar" hidden>
+      <div class="like-bar" id="like-bar">
         <span class="like-lb">Поставьте 👍 если было полезно</span>
         <button class="like-btn" id="like-btn" type="button" aria-pressed="false" aria-label="Поставить лайк">
           <span class="like-emoji" id="like-emoji">👍</span>
@@ -868,6 +1006,6 @@ footer{color:var(--muted2);font-size:12.5px;text-align:center;padding:18px 0 34p
   </footer>
 </div>
 
-<script src="/static/prototype-api.js?v=20260709-1355" defer></script>
+<script src="/static/prototype-api.js?v=20260709-mobile5" defer></script>
 </body>
 </html>
