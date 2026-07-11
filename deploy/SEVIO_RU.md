@@ -2,7 +2,7 @@
 
 Текущая production-схема:
 
-- VM в Yandex Cloud: `51.250.6.245`;
+- VM в Yandex Cloud: `93.77.187.60` (статический публичный IPv4);
 - пользователь SSH: `ablaze`;
 - приложение: `/srv/sevio/app`;
 - SQLite-база: `/srv/sevio/data/rosreestr.sqlite`;
@@ -15,11 +15,11 @@
 У домена должны быть записи:
 
 ```text
-sevio.ru      A      51.250.6.245
-www.sevio.ru  A/CNAME на sevio.ru или A 51.250.6.245
+sevio.ru      A      93.77.187.60
+www.sevio.ru  CNAME на sevio.ru или A 93.77.187.60
 ```
 
-На 9 июля 2026 домен уже указывает на `51.250.6.245`.
+На 11 июля 2026 домен уже указывает на `93.77.187.60`.
 
 ## Обновление кода с локального компьютера
 
@@ -36,13 +36,13 @@ rsync -az --delete \
   -e 'ssh -i ~/.ssh/id_ed25519_sevio -o BatchMode=yes' \
   Dockerfile compose.yaml requirements-api.txt .dockerignore .env.example \
   README_API.md LOCAL_RUN.md sevio_api deploy \
-  ablaze@51.250.6.245:/srv/sevio/app/
+  ablaze@93.77.187.60:/srv/sevio/app/
 ```
 
 Затем на сервере:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_sevio ablaze@51.250.6.245
+ssh -i ~/.ssh/id_ed25519_sevio ablaze@93.77.187.60
 cd /srv/sevio/app
 sudo docker compose up -d --build
 sudo cp deploy/nginx/sevio.ru.conf /etc/nginx/sites-available/sevio.ru
@@ -79,6 +79,36 @@ curl -sk -H "X-Sevio-Token: $TOKEN" \
 
 Ожидаемый ориентир для текущей базы: `estimate = 10128672`, `stats.n = 5445`.
 
+## Лайки (счётчик «👍 если было полезно»)
+
+Лайки хранятся в отдельной SQLite `/data/likes/likes.sqlite` внутри контейнера,
+примонтированной на хост в `/srv/sevio/data/likes`. Счётчик на витрине стартует
+со значения `SEVIO_LIKES_BASE` (по умолчанию 100) и растёт на реальные лайки.
+
+Перед первым деплоем этой доработки нужно один раз создать папку на сервере:
+
+```bash
+ssh -i ~/.ssh/id_ed25519_sevio ablaze@93.77.187.60 \
+  'sudo mkdir -p /srv/sevio/data/likes'
+```
+
+Необязательные переменные в `/srv/sevio/app/.env` на сервере (есть значения по умолчанию):
+
+```text
+SEVIO_LIKES_SALT=<длинная-случайная-соль>   # по умолчанию = SEVIO_API_SECRET
+SEVIO_LIKES_BASE=100                          # стартовое «витринное» число
+```
+
+Проверка после деплоя:
+
+```bash
+TOKEN=$(curl -sk https://sevio.ru/api/session | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')
+curl -sk -H "X-Sevio-Token: $TOKEN" https://sevio.ru/api/likes
+```
+
+Ожидаем `{"count":100,"liked":false}` (или больше, если лайки уже есть).
+Чистое число реальных лайков = `count − SEVIO_LIKES_BASE`.
+
 ## База данных
 
 База не хранится в Git и не копируется обычным rsync-деплоем.
@@ -93,9 +123,9 @@ curl -sk -H "X-Sevio-Token: $TOKEN" \
 
 ```bash
 scp "Сделки Росреестр/output/rosreestr_deals_unified_2025q3_2026q1.sqlite" \
-  ablaze@51.250.6.245:/srv/sevio/data/rosreestr.sqlite
+  ablaze@93.77.187.60:/srv/sevio/data/rosreestr.sqlite
 
-ssh -i ~/.ssh/id_ed25519_sevio ablaze@51.250.6.245
+ssh -i ~/.ssh/id_ed25519_sevio ablaze@93.77.187.60
 cd /srv/sevio/app
 sudo docker compose restart sevio-api
 ```
@@ -127,14 +157,14 @@ sudo certbot --nginx -d sevio.ru -d www.sevio.ru \
 После Certbot нужно забрать актуальный Nginx-конфиг обратно в проект:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_sevio ablaze@51.250.6.245 \
+ssh -i ~/.ssh/id_ed25519_sevio ablaze@93.77.187.60 \
   'sudo cat /etc/nginx/sites-available/sevio.ru' > deploy/nginx/sevio.ru.conf
 ```
 
 ## Полезные команды
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_sevio ablaze@51.250.6.245
+ssh -i ~/.ssh/id_ed25519_sevio ablaze@93.77.187.60
 cd /srv/sevio/app
 sudo docker compose ps
 sudo docker compose logs -f sevio-api

@@ -1,7 +1,7 @@
 "use strict";
 
 let DATA;
-const PROTOTYPE_DATA_URL = "/api/prototype-data?v=20260709-1355";
+const PROTOTYPE_DATA_URL = "/static/prototype-core-data.json?v=20260711-core1";
 
 async function loadPrototypeData() {
   const response = await fetch(PROTOTYPE_DATA_URL);
@@ -322,6 +322,10 @@ async function bootPrototype() {
     if(state.rc && !DATA.regions[state.rc]){ state.rc=null; state.loc=null; state.lc=null; state.street=null; }
     if(state.rc && state.loc && !DATA.regions[state.rc].d[state.loc]){ state.loc=null; state.lc=null; state.street=null; }
     if(state.rc && state.loc && state.lc && !(((DATA.regions[state.rc].d[state.loc]||{}).lc||{})[state.lc])) state.lc=null;
+    if(state.rc && state.loc && state.street){
+      const streets = ((((DATA.regions[state.rc]||{}).d||{})[state.loc]||{}).st||{})[state.t] || [];
+      if(!streets.some(row=>row[0]===state.street)) state.street=null;
+    }
     if(state.t!=="4") state.ct=0;
     if(state.t!=="3" && state.t!=="4") state.market="";
     if((state.t==="5"||state.t==="6"||!state.rc) && state.seg) state.seg=0;
@@ -572,7 +576,8 @@ async function bootPrototype() {
     const cr=document.getElementById("crumbs");
     if(cr) cr.innerHTML="";
     const filtSuffix=(state.ct?" · "+CT_NAMES[state.ct]:"")+(state.market?" · "+MARKET_NAMES[state.market]:"")+(state.seg?" · "+SEG_NAMES[state.seg]:"");
-    const lvl = !state.rc ? "rf" : (state.loc ? "street" : "loc");
+    const hasStreetMap = !!(state.rc && state.loc && (((DATA.regions[state.rc]||{}).d||{})[state.loc]||{}).st);
+    const lvl = !state.rc ? "rf" : (state.loc && hasStreetMap ? "street" : "loc");
     document.getElementById("map-title").textContent =
       (lvl==="rf" ? "Карта регионов · Россия" : lvl==="street" ? "Карта улиц · "+state.loc : "Карта районов · "+reg.name)
       +" · "+TYPE_NAMES[state.t]+(lvl==="street"?" · фильтры не применяются":filtSuffix);
